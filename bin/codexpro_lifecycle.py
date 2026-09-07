@@ -683,6 +683,10 @@ def doctor(
         local_multi_gpt["enabled"] = bool(receipt.get("optional_components", {}).get("local_multi_gpt", {}).get("enabled"))
         for record in receipt.get("files") or []:
             path = safe_child(codex_home, str(record.get("path") or ""))
+            if record.get("action") == "retired":
+                if path.exists() or path.is_symlink():
+                    issues.append({"code": "RETIRED_FILE_REAPPEARED", "path": str(record.get("path"))})
+                continue
             if not path.is_file():
                 issues.append({"code": "FILE_MISSING", "path": str(record.get("path"))})
             elif sha256_file(path) != record.get("installed_sha256"):

@@ -178,6 +178,10 @@ def test_receipt_owned_unchanged_file_is_retired_and_rollback_restores_it(tmp_pa
     assert record["action"] == "retired"
     assert record["retired_sha256"] == record["backup_sha256"]
 
+    health = module.doctor(codex_home, oracle_resolver=lambda: [sys.executable],
+                           oracle_run_factory=lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, "0.18.0\n", ""))
+    assert not [issue for issue in health["issues"] if issue.get("path") == relative]
+
     result = module.rollback(codex_home, Path(installed["receipt"]))
     assert result["ok"] is True
     assert destination.read_bytes() == b"old managed skill\n"
@@ -214,6 +218,10 @@ def test_rollback_preserves_path_recreated_after_retirement(tmp_path: Path) -> N
     installed = module.install(repo, codex_home)
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_bytes(b"new user file\n")
+
+    health = module.doctor(codex_home, oracle_resolver=lambda: [sys.executable],
+                           oracle_run_factory=lambda *args, **kwargs: subprocess.CompletedProcess(args, 0, "0.18.0\n", ""))
+    assert {"code": "RETIRED_FILE_REAPPEARED", "path": relative} in health["issues"]
 
     result = module.rollback(codex_home, Path(installed["receipt"]))
 
