@@ -252,7 +252,6 @@ def test_scoped_package_tree_rejects_directory_links_and_junctions(tmp_path: Pat
         created = subprocess.run(
             ["cmd", "/c", "mklink", "/J", str(link), str(external)],
             capture_output=True,
-            text=True,
             check=False,
         )
         assert created.returncode == 0, created.stderr
