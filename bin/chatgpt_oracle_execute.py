@@ -273,7 +273,7 @@ def public_contract(config: ExecutionConfig) -> dict[str, Any]:
         "chatgpt_url": CHATGPT_URL,
         "archive": "never",
         "temporary_chat": True,
-        "personalization": "existing-user-setting",
+        "personalization": "enabled-before-submit",
     }
 
 
@@ -286,7 +286,7 @@ def _composer_prompt(config: ExecutionConfig) -> str:
         f"@{config.app_name} Open exactly this approved project root in checkout mode: {config.project_root}. "
         f"Read and execute the mission file: {config.mission_path}. "
         "The mission defines the task intent and action authority; read it and applicable AGENTS.md fully before acting. "
-        "Do not substitute another root or connector, and do not change ChatGPT account, privacy, personalization, app, or permission settings."
+        "Do not substitute another root or connector, and do not change ChatGPT account, privacy, app, or permission settings. Temporary-chat personalization is enabled by the runner before submission."
     )
 
 
@@ -295,7 +295,9 @@ def _slug(config: ExecutionConfig) -> str:
     identity = hashlib.sha256(
         (str(config.project_root).casefold() + "\0" + config.run_id + "\0" + str(config.source_thread_id or "cli")).encode("utf-8")
     ).hexdigest()[:16]
-    return f"oracle-{'-'.join(word[:10] for word in words)}-{identity}"
+    # Oracle truncates each slug word to ten characters. Split the identity so
+    # our persisted name is exactly the session directory Oracle creates.
+    return f"oracle-{words[0][:10]}-{identity[:8]}-{identity[8:]}"
 
 
 def build_oracle_argv(
@@ -798,6 +800,8 @@ def _finalize_capture(
 
 def _child_environment() -> dict[str, str]:
     environment = dict(os.environ)
+    environment["CODEX_ORACLE_TEMPORARY_PERSONALIZATION"] = "enabled"
+    environment["CODEX_ORACLE_TEMPORARY_PERSONALIZATION_HELPER"] = Path(__file__).with_name("oracle_temporary_personalization.mjs").resolve().as_uri()
     for key in (
         "ORACLE_TASK_OUTCOME_TERMINAL_CONTRACT",
         "ORACLE_TERMINAL_MARKER_CONFIRM_CYCLES",
@@ -822,8 +826,15 @@ def _prepare_run_profile(config: ExecutionConfig, run_dir: Path) -> Path:
                 ignored.append(name)
         return ignored
 
-    shutil.copytree(config.copy_profile, destination, ignore=ignore)
-    for preferences in destination.glob("*/Preferences"):
+    def native_path(path: Path) -> Path:
+        value = str(path.absolute())
+        if os.name != "nt" or value.startswith("\\\\?\\"):
+            return path
+        return Path("\\\\?\\UNC\\" + value[2:] if value.startswith("\\\\") else "\\\\?\\" + value)
+
+    copy_destination = native_path(destination)
+    shutil.copytree(native_path(config.copy_profile), copy_destination, ignore=ignore)
+    for preferences in copy_destination.glob("*/Preferences"):
         value = json.loads(preferences.read_text(encoding="utf-8"))
         if not isinstance(value, dict) or any(
             key in value and not isinstance(value[key], dict) for key in ("profile", "session")
@@ -892,9 +903,11 @@ def execute_config(
         _write_json_atomic(state_path, state)
         stdout_path.touch()
         stderr_path.touch()
+        launch_attempted = False
         try:
             _prepare_run_profile(config, run_dir)
             with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
+                launch_attempted = True
                 process = popen_factory(
                     argv,
                     cwd=str(config.project_root),
@@ -909,7 +922,10 @@ def execute_config(
                 _write_json_atomic(state_path, state)
                 state["exit_code"] = int(process.wait())
         except Exception as exc:
-            state.update({"status": "attention_required", "submission": "unknown", "error": str(exc)})
+            state.update({"status": "attention_required",
+                          "submission": "unknown" if launch_attempted else "not_observed",
+                          "failure_stage": "oracle-launch-or-observation" if launch_attempted else "profile-preparation",
+                          "error": str(exc)})
             _write_json_atomic(state_path, state)
             return {"ok": False, "status": state["status"], "run_dir": str(run_dir), "result": state}
         state = _finalize_capture(

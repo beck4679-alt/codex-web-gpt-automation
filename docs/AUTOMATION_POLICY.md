@@ -14,7 +14,7 @@ records retain their original meaning and are never rewritten by this policy.
   select GPT-5.6 numerically to obtain Pro. The CLI compatibility carrier is
   `gpt-5.6-sol` with `model_strategy=current`; it is not the requested UI model.
   Keep this workaround until native Oracle support is actually verified.
-- Use temporary chats with the user's existing personalization preference.
+- Use temporary chats. The runner enables and confirms temporary-chat personalization before submission; it does not change account settings. If confirmation fails, do not submit.
   Do not silently change account, privacy, app, or permission settings.
 - Check the actual selected model once before submission. Do not duplicate
   that check through multiple receipts or recurring qualification stages.

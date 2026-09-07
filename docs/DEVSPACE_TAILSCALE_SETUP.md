@@ -83,7 +83,7 @@ python skills/chatgpt-workspace-setup/scripts/devspace_tailscale_setup.py post-r
 
 Verify the registered app with one actual project read using the
 [shared automation policy](AUTOMATION_POLICY.md). Use the selected model and
-effort in a temporary chat, preserving existing personalization. Do not
+effort in a temporary chat, automatically enabling temporary-chat personalization before submission. Do not
 substitute another connector's health for this app's file access. No preliminary
 non-Pro run, forced tool sequence, audit nonce, or three receipts are required.
 The mission names the exact project root so its directory cannot be mistaken

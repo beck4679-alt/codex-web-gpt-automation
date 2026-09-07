@@ -126,8 +126,8 @@ Planning, research, review, and editing belong in the mission, not separate
 execution modes. Select the model and effort explicitly.
 
 The default compatibility route selects **Latest → Pro (6 Pro)**, never the
-numeric GPT-5.6 row. Use temporary chats with existing user-enabled
-personalization, save the result durably, then close only the owned tab.
+numeric GPT-5.6 row. Use temporary chats. Automatically enable and confirm temporary-chat
+personalization before submission, save the result durably, then close only the owned tab.
 Recover that same tab after timeout or connection failure; do not automatically
 resubmit, archive, or restore conversations.
 

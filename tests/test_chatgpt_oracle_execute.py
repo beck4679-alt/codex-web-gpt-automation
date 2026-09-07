@@ -75,6 +75,21 @@ def test_config_binds_ambient_task_owner(executor, execution_paths, monkeypatch)
     assert executor.manifest_payload(config)["source_thread_id"] == owner
 
 
+def test_slug_survives_oracle_normalization(executor, execution_paths):
+    root, mission, run_root, _ = execution_paths
+    config = executor.make_config(project_root=root, mission_path=mission, run_root=run_root)
+    slug = executor._slug(config)
+    assert 3 <= len(slug.split("-")) <= 5
+    assert all(len(word) <= 10 for word in slug.split("-"))
+
+
+def test_child_enables_temporary_personalization(executor, monkeypatch):
+    monkeypatch.setenv("CODEX_ORACLE_TEMPORARY_PERSONALIZATION", "disabled")
+    environment = executor._child_environment()
+    assert environment["CODEX_ORACLE_TEMPORARY_PERSONALIZATION"] == "enabled"
+    assert environment["CODEX_ORACLE_TEMPORARY_PERSONALIZATION_HELPER"] == MODULE_PATH.with_name("oracle_temporary_personalization.mjs").as_uri()
+
+
 def test_changed_mission_is_rejected_before_launch(executor, execution_paths):
     root, mission, run_root, _ = execution_paths
     config = executor.make_config(project_root=root, mission_path=mission, run_root=run_root)
@@ -117,6 +132,38 @@ def test_profile_is_required_only_for_live_execution(executor, execution_paths, 
     with pytest.raises(executor.ExecutionError) as exc:
         executor.execute_config(config, command_resolver=lambda: pytest.fail("must not launch"))
     assert exc.value.code == "SIGNED_IN_PROFILE_UNAVAILABLE"
+
+
+def test_profile_copy_failure_is_definitely_before_submission(executor, execution_paths, monkeypatch):
+    root, mission, run_root, _ = execution_paths
+    config = executor.make_config(project_root=root, mission_path=mission, run_root=run_root)
+    def failed_copy(*args):
+        raise OSError("profile copy failed")
+    monkeypatch.setattr(executor, "_prepare_run_profile", failed_copy)
+    result = executor.execute_config(config, command_resolver=lambda: ["oracle"],
+        version_resolver=lambda command: "oracle 0.18.0", compat_factory=lambda version: {},
+        popen_factory=lambda *args, **kwargs: pytest.fail("must not start Oracle"))
+    assert result["result"]["submission"] == "not_observed"
+    assert result["result"]["failure_stage"] == "profile-preparation"
+
+
+def test_profile_copy_handles_long_windows_destination(executor, execution_paths):
+    root, mission, run_root, _ = execution_paths
+    config = executor.make_config(project_root=root, mission_path=mission, run_root=run_root)
+    source = config.copy_profile / "Default" / "nested-profile-assets"
+    source.mkdir(parents=True)
+    name = "asset-" + "x" * 100 + ".txt"
+    (source / name).write_bytes(b"fixture")
+    run_dir = run_root / ("long-run-" + "x" * 60)
+    copied = executor._prepare_run_profile(config, run_dir)
+    target = copied / "Default" / "nested-profile-assets" / name
+    if executor.os.name == "nt":
+        target = Path("\\\\?\\" + str(target.absolute()))
+    try:
+        assert target.read_bytes() == b"fixture"
+    finally:
+        # tempfile cleanup does not use the Windows extended-length prefix.
+        target.unlink()
 
 
 def test_root_access_failure_never_launches_or_creates_run(executor, execution_paths, monkeypatch):

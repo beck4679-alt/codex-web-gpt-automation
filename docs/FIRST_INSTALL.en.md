@@ -43,7 +43,7 @@ app. HTTP 401 without authentication can establish endpoint reachability, but
 cannot establish successful authenticated file access.
 
 Use the normal temporary-chat flow. Explicitly select Latest, then the requested
-effort (default Pro / 6 Pro). Preserve existing user-enabled personalization.
+effort (default Pro / 6 Pro). Automatically enable temporary-chat personalization before submission.
 Oracle's current compatibility carrier is `gpt-5.6-sol` with
 `model_strategy=current` and `thinking_time=pro`; it must click Latest, not the
 numeric GPT-5.6 row. Do not invent `gpt-6` or `latest` CLI model identifiers.

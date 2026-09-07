@@ -43,6 +43,7 @@
     "bin/chatgpt_git_isolation.py",
     "bin/chatgpt_oracle_run.py",
     "bin/chatgpt_oracle_execute.py",
+    "bin/oracle_temporary_personalization.mjs",
     "bin/chatgpt_devspace_compat.py",
     "bin/devspace-compat/",
     "bin/chatgpt_oracle_compat.py",

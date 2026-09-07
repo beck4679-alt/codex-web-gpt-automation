@@ -9,7 +9,7 @@ requirements. Do not recreate retired automation modes or audit ceremonies.
 Use one mission-based flow, explicit model/effort selection, temporary chats,
 durable result capture before owned-tab cleanup, and exact-run recovery without
 automatic resubmission. Select Latest explicitly before the requested effort.
-Account personalization and permissions remain user-controlled. New work has
+The runner enables temporary-chat personalization before submission. Account settings and permissions remain user-controlled. New work has
 no archive/restore phase.
 
 Historical state and recovery are compatibility-only. Preserve original
@@ -32,7 +32,7 @@ records and authority; never infer ownership or replace an uncertain submission.
   and unrelated settings. Never substitute a nearby project root.
 - Establish access during setup; repeat checks only after relevant changes or
   actual failure. HTTP health alone does not prove a requested file was read.
-- App registration, login, permissions, and personalization remain manual.
+- App registration, login, permissions, and account personalization remain manual.
   Never collect passwords, tokens, or cookies in run state.
 - Preserve the configured native commander. Never restore removed CGW routing.
 - Never stop or adopt foreign runs. Bind recovery and cleanup to the exact

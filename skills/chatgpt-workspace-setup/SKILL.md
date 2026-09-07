@@ -22,7 +22,7 @@ an actual access failure, not ordinary GPT runs or repeated daily qualification.
    A successful health response alone is not proof of a file read. The read
    need not use a prescribed tool order, audit nonce, or three receipts.
 5. Use the common temporary-chat flow with explicit Latest then requested
-   effort (default Pro / 6 Pro). Preserve the user's existing personalization.
+   effort (default Pro / 6 Pro). Enable temporary-chat personalization before submission; preserve account settings.
    Save the actual result before closing the owned tab.
 
 Do not require a non-Pro preliminary run, a command canary, a fixed outcome

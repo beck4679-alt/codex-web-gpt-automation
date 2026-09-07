@@ -11,7 +11,7 @@ and user-approved delegation. Do not restore removed CGW routing.
 
 The default Oracle compatibility route explicitly selects Latest, then Pro
 (observed as 6 Pro). Do not numerically select GPT-5.6 to obtain Pro. Use
-temporary chats with existing user-enabled personalization. Preserve the same
+temporary chats with personalization automatically enabled before submission. Preserve the same
 owned tab through capture, persist the complete result, and only then close it.
 On uncertainty recover the same run; never automatically resend.
 

@@ -5,7 +5,7 @@
 - Replace separate new-work execution modes with one mission-based flow and
   explicit model/effort selection. Existing historical records retain their
   original recovery authority; retired modes are not new-work fallbacks.
-- Use temporary chats with existing user-enabled personalization. Persist the
+- Automatically enable temporary-chat personalization before submission. Persist the
   complete result before closing the owned tab; recover the same run after
   uncertainty without automatically resending the prompt.
 - Remove compulsory audit nonces, ordered tool calls, three receipts, repeated

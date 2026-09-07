@@ -1,23 +1,6 @@
 diff --git a/dist/src/browser/actions/thinkingTime.js b/dist/src/browser/actions/thinkingTime.js
 --- a/dist/src/browser/actions/thinkingTime.js
 +++ b/dist/src/browser/actions/thinkingTime.js
-@@ -55,4 +55,16 @@
-  * unless the selected option is confirmed.
-  */
- export async function ensureThinkingTime(Runtime, level, logger, desiredModel) {
-+    if (process.env.CODEX_ORACLE_TEMPORARY_PERSONALIZATION === "enabled") {
-+        const helperModule = process.env.CODEX_ORACLE_TEMPORARY_PERSONALIZATION_HELPER;
-+        if (!helperModule) {
-+            throw new Error("CODEX_ORACLE_TEMPORARY_PERSONALIZATION_HELPER is required when temporary personalization is enabled.");
-+        }
-+        const helperUrl = new URL(helperModule);
-+        if (helperUrl.protocol !== "file:" || !helperUrl.pathname) {
-+            throw new Error("CODEX_ORACLE_TEMPORARY_PERSONALIZATION_HELPER must be an absolute file URI.");
-+        }
-+        const { ensureTemporaryChatPersonalization } = await import(helperUrl.href);
-+        await ensureTemporaryChatPersonalization(Runtime, logger);
-+    }
-     const result = await evaluateThinkingTimeSelection(Runtime, level, desiredModel);
 @@ -65,9 +65,12 @@
      const strictProEffort = level === "pro" ||
 +        (desiredModel == null && ['light', 'standard', 'extended', 'extra-high'].includes(level)) ||
