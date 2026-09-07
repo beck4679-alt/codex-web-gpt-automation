@@ -961,6 +961,7 @@ def test_published_0180_pro_power_slider_migrates_known_exact_bytes(
         "1aa1a216f71e1213c2056efb0db4c4de7c2b2c505311e1be98c2b6a2784521dd",
         "978f754ba4011957790530474d27d629a8d353dd449f8e2636e02a9abd27b81a",
         "a19ce77fe57b4fa1a290e130da323377ed69b6e51b1ad133b1ab5355ead59345",
+        "43b866d19344f9e2a3e7cd9bdaac46faead998fbae978c1c63c6a3b183bd1af8",
     ]
     legacy_patches = {
         legacy_hash: str(contract.get("legacy_patches", {}).get(legacy_hash) or contract["legacy_patch"])

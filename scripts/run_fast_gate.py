@@ -22,6 +22,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 FAST_TARGETS = [
     "tests/test_temporary_personalization.py",
+    "tests/test_oracle_personalization_patch.py",
+    "tests/test_oracle_package_discovery.py",
     "tests/test_chatgpt_oracle_execute.py",
     "tests/test_chatgpt_oracle_dispatch.py",
     "tests/test_chatgpt_oracle_state.py",

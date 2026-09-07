@@ -2,6 +2,10 @@
 
 ## 2.0.0 - One lean execution flow
 
+- Discover Oracle in configured npm caches and the Windows packaged Codex cache,
+  retaining the explicit package-root override. Validate archived patch migration
+  and the pre-submission personalization hook in the normal fast gate.
+
 - Replace separate new-work execution modes with one mission-based flow and
   explicit model/effort selection. Existing historical records retain their
   original recovery authority; retired modes are not new-work fallbacks.

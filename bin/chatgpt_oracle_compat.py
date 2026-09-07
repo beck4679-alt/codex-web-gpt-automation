@@ -585,9 +585,26 @@ def _candidate_roots() -> list[Path]:
     override = str(os.environ.get("ORACLE_PACKAGE_ROOT") or "").strip()
     if override:
         return [Path(override).expanduser().resolve()]
+
     local = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local"))
-    roots = list((local / "npm-cache" / "_npx").glob("*/node_modules/@steipete/oracle"))
-    return sorted((path.resolve() for path in roots if path.is_dir()), key=lambda path: path.stat().st_mtime, reverse=True)
+    cache_roots = [
+        Path(value).expanduser()
+        for name in ("npm_config_cache", "NPM_CONFIG_CACHE")
+        if (value := str(os.environ.get(name) or "").strip())
+    ]
+    cache_roots.extend((local / "npm-cache", Path.home() / ".npm"))
+    cache_roots.extend(
+        (local / "Packages").glob("OpenAI.Codex_*/LocalCache/Local/npm-cache")
+    )
+
+    roots: dict[Path, float] = {}
+    for cache_root in cache_roots:
+        for path in (cache_root / "_npx").glob("*/node_modules/@steipete/oracle"):
+            if not path.is_dir():
+                continue
+            resolved = path.resolve()
+            roots[resolved] = resolved.stat().st_mtime
+    return sorted(roots, key=roots.__getitem__, reverse=True)
 
 
 def resolve_package_root(version: str = SUPPORTED_VERSION) -> Path:
