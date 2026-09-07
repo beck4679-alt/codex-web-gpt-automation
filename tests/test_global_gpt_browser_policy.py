@@ -12,6 +12,8 @@ MULTI = ROOT / "skills" / "web-multi-gpt" / "SKILL.md"
 RESEARCH = ROOT / "skills" / "chatgpt-deep-research-browser" / "SKILL.md"
 ORACLE = ROOT / "skills" / "chatgpt-oracle-runtime" / "SKILL.md"
 DESIGNER = ROOT / "skills" / "chatgpt-question-designer" / "SKILL.md"
+GUARD = ROOT / "skills" / "mcp-update-guard" / "SKILL.md"
+AGENTS = ROOT / "AGENTS.md"
 
 
 def text(path: Path) -> str:
@@ -27,25 +29,45 @@ def test_new_regular_modes_route_only_to_oracle_devspace() -> None:
     assert "app picker" not in value.casefold()
 
 
-def test_qualified_pro_requires_explicit_opt_in_and_uses_readonly_devspace() -> None:
-    value = text(PRO)
-    flat = " ".join(value.split())
-    assert "Oracle is the only backend for a new Pro run" in flat
-    assert "Pro is quota-limited" in flat
-    assert "never infer Pro from task difficulty" in flat
-    assert "exact absolute project root" in flat
-    assert "read-only and limited to design, advice, or review" in flat
-    assert "regular `GPT-5.6` `extra-high` DevSpace stage owns any required mutation or command" in flat
-    assert "`pro-attachment` remains an explicit, read-only route" in flat
-    assert "never an automatic fallback" in flat
-    assert "There is no new agbrowse,\nCodexPro" in value
-    handoff = text(HANDOFF)
-    assert "allow_pro: true" in handoff
-    assert "`pro-devspace-readonly`" in handoff
-    assert "regular `GPT-5.6` `extra-high` DevSpace stage" in handoff
-    assert "`pro-attachment`" in handoff
-    assert "read-only immutable/external-evidence" in handoff
-    assert "Persisted legacy `pro-devspace`" in handoff
+def test_standing_cognitive_route_is_latest_6_pro_without_per_run_opt_in() -> None:
+    values = [text(path) for path in (AGENTS, PRO, DESIGNER, HANDOFF, GUARD)]
+    combined = " ".join(" ".join(value.split()) for value in values)
+    assert "non-implementation cognitive" in combined
+    assert "requirements" in combined and "semantic verification" in combined
+    assert "`@codex`" in combined
+    assert "exact `Latest` checked" in combined
+    assert "full `5/5` qualification" in combined
+    assert "`Thinking effort` control" in combined
+    assert "`6 Pro` signal in either the model menu or composer" in combined
+    assert "structured observed-picker receipt" in combined
+    assert "per-run" in combined and "standing" in combined
+    assert "fall back to GPT-5.6 or GPT-5.5" in combined
+    assert "`model: gpt-5.6-sol`" in combined
+    assert "`model_strategy: current`" in combined
+    assert "`thinking_time: pro`" in combined
+    assert "invented `gpt-6` or `latest`" in combined
+    assert "claim a new Oracle engine" in combined
+    assert "Native `gpt-5.6-sol` owns implementation" in combined
+    assert "Luna owns chores" in combined
+    assert "Astra owns orchestration" in combined
+    assert "CGW" in combined and "`chatgpt-web/*`" in combined
+
+
+def test_compatibility_workflows_keep_schema_and_recovered_authority() -> None:
+    combined = "\n".join(text(path) for path in (AGENTS, DESIGNER, HANDOFF, GUARD))
+    assert "codex.chatgpt.oracle-comprehensive/v1" in combined
+    assert "allow_pro: true" in combined
+    assert "selector-era" in combined
+    assert "explicit compatibility" in combined
+    assert "Do not rewrite a recovered" in combined
+    assert "Existing v1-v4 agbrowse comprehensive state" in combined
+    assert "--retry-final-receipt" in combined
+    assert "settle-no-submission" in combined
+    assert "regular web work defaults to the highest supported non-Pro" not in combined
+    assert "only explicit user opt-in selects new qualified Pro" not in combined
+    assert "regular `GPT-5.6` `extra-high` DevSpace stage owns" not in combined
+    assert "Pro is quota-limited" not in text(PRO)
+    assert "Invoke this skill only after an explicit user request" not in text(PRO)
 
 
 def test_qualified_pro_has_exact_root_readonly_authority() -> None:
@@ -201,16 +223,14 @@ def test_readme_declares_manual_one_time_registration_not_ui_automation() -> Non
     assert "ChatGPT 앱 `codex` 등록" in value
 
 
-def test_english_readme_maps_modes_to_the_same_oracle_routes() -> None:
+def test_english_readme_preserves_oracle_compatibility_routes() -> None:
     value = text(ROOT / "README.en.md")
     assert "Oracle + DevSpace" in value
     assert "`orchestrator` / orchestrator" in value
     assert "`deep-research` / deep research" in value
     assert "comprehensive mode" in value
     assert "Web Multi-GPT" in value
-    assert "Pro is quota-limited, never auto-selected" in value
     assert "Oracle + read-only DevSpace" in value
-    assert "regular `GPT-5.6` `extra-high` DevSpace stage performs any file creation" in value
     assert "never resubmits the task" in value
 
 
@@ -239,8 +259,9 @@ def test_agent_metadata_exposes_oracle_active_routes() -> None:
 
 def test_question_designer_preserves_explicit_readonly_attachment_route() -> None:
     value = text(DESIGNER)
-    assert "A separately explicit `pro-attachment` request" in value
-    assert "never an automatic fallback from DevSpace" in value
+    assert "A separately explicit compatibility `pro-attachment`" in value
+    assert "never silently substituted when the standing" in value
+    assert "or a new `pro-attachment` fallback" in value
     assert "attachment evidence is a persisted-legacy recovery concern, not a new-work route" not in value
 
 

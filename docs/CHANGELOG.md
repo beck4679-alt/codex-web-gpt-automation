@@ -1,5 +1,29 @@
 # 기술 변경 기록
 
+## 1.20.16 - Explicit Latest selection and resumable Windows startup
+
+- Oracle 0.18.0's compatibility adapter explicitly selects `Latest` / `최신`
+  before setting the requested power level. The five positions map to light,
+  standard, extended, extra-high, and Pro. Unverified selection stops submission;
+  a previous Pro setting is never silently retained for an Extra-high request.
+- Pro additionally requires the visible `6 Pro` model label in the open picker
+  or composer, together with the checked Latest row and power 5/5. The known
+  Oracle CLI model slug is only a compatibility carrier, never a request to
+  click GPT-5.6 Sol. This route remains until native Oracle 6 Pro support passes
+  model, no-submission, and real workspace-read verification.
+- Fresh owned browser launches clean up only their captured startup blank tabs
+  after connecting a separate work tab. Startup preferences are normalized only
+  in the throwaway copied profile; original login profiles, cookies, existing
+  conversations, reused browsers, and unrelated tabs remain untouched.
+- Onboarding gains readable Korean/English progress, UTF-8 output, resumable
+  partial setup, and hash-bound watchdog recovery evidence. A saved project
+  list alone no longer proves successful service recovery.
+- Runtime and service identity checks distinguish executable/version evidence
+  from a matching path string, including Windows app-cache installations.
+- Standing non-implementation cognitive work uses Oracle `@codex` Latest/6 Pro;
+  native Sol owns implementation, Luna/local checks own mechanical testing,
+  and Astra retains orchestration and release control. CGW remains removed.
+
 ## 1.20.15 - Verify the current GPT-5.6 Sol Pro power slider
 
 - Oracle 0.18.0 now recognizes ChatGPT's current unified `Thinking effort`

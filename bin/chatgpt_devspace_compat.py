@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import time
@@ -668,9 +669,67 @@ def current_devspace_service_identity(local_port: int = 7676) -> dict[str, Any] 
         "if($null -eq $p){exit 3}; "
         "$started=[DateTimeOffset]::new($p.CreationDate.ToUniversalTime()).ToUnixTimeMilliseconds()*1000000; "
         "[pscustomobject]@{pid=[int]$p.ProcessId;command_line=[string]$p.CommandLine;"
+        "executable_path=[string]$p.ExecutablePath;"
         "started_at_unix_ns=[int64]$started;local_port=[int]$c.LocalPort}|ConvertTo-Json -Compress"
     )
     return _powershell_json(script)
+
+
+def _command_argv(command_line: str) -> list[str]:
+    if not command_line.strip():
+        return []
+    if os.name != "nt":
+        try:
+            return shlex.split(command_line, posix=True)
+        except ValueError:
+            return []
+    try:
+        import ctypes
+
+        argc = ctypes.c_int()
+        command_line_to_argv = ctypes.windll.shell32.CommandLineToArgvW
+        command_line_to_argv.argtypes = [ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_int)]
+        command_line_to_argv.restype = ctypes.POINTER(ctypes.c_wchar_p)
+        argv = command_line_to_argv(command_line, ctypes.byref(argc))
+        if not argv:
+            return []
+        try:
+            return [argv[index] for index in range(argc.value)]
+        finally:
+            local_free = ctypes.windll.kernel32.LocalFree
+            local_free.argtypes = [ctypes.c_void_p]
+            local_free.restype = ctypes.c_void_p
+            local_free(argv)
+    except (AttributeError, OSError, ValueError):
+        return []
+
+
+def _same_path(left: Path, right: Path) -> bool:
+    left_value = str(left)
+    right_value = str(right)
+    if os.name == "nt":
+        return os.path.normcase(left_value) == os.path.normcase(right_value)
+    return left_value == right_value
+
+
+def _validated_current_service_package(package_root: Path) -> str:
+    try:
+        root = package_root.resolve(strict=True)
+        metadata = _json_object(root / "package.json", code="DEVSPACE_SERVICE_IDENTITY_MISMATCH")
+        if metadata.get("name") != "@waishnav/devspace":
+            raise ValueError("package-name")
+        if str(metadata.get("version") or "").strip() != SUPPORTED_VERSION:
+            raise ValueError("package-version")
+        for relative, contract in PATCHES.items():
+            if sha256_file(root / relative) != contract["patched"]:
+                raise ValueError(f"patched-hash:{relative}")
+        return sha256_file(root / "dist" / "cli.js")
+    except (DevSpaceCompatError, KeyError, OSError, ValueError) as exc:
+        raise DevSpaceCompatError(
+            "DEVSPACE_SERVICE_IDENTITY_MISMATCH",
+            "the DevSpace service package identity is not validated",
+            {"package_root": str(package_root), "reason": str(exc)},
+        ) from exc
 
 
 def _assert_devspace_service_identity(
@@ -683,27 +742,10 @@ def _assert_devspace_service_identity(
             "DevSpace service is not listening on the expected local port",
         )
     command_line = str(value.get("command_line") or "")
-    normalized = command_line.replace("\\", "/").casefold()
-    normalized = re.sub(r"/+", "/", normalized)
-    normalized = normalized.replace("/.bin/../", "/")
-    expected_cli_paths = [
-        str(root / "dist" / "cli.js").replace("\\", "/").casefold()
-        for root in package_roots
-    ]
-    if os.name != "nt":
-        for root in package_roots:
-            cli = root / "dist" / "cli.js"
-            shim = root.parents[1] / ".bin" / "devspace"
-            try:
-                if shim.is_symlink() and shim.resolve(strict=True) == cli.resolve(strict=True):
-                    expected_cli_paths.append(str(shim).casefold())
-            except OSError:
-                continue
-    if not any(
-        expected in normalized
-        and re.search(rf"{re.escape(expected)}(?:\"|\s)+serve(?:\s|$)", normalized)
-        for expected in expected_cli_paths
-    ):
+    argv = _command_argv(command_line)
+    expected_cli_paths = [str(root / "dist" / "cli.js") for root in package_roots]
+
+    def reject(reason: str) -> None:
         raise DevSpaceCompatError(
             "DEVSPACE_SERVICE_IDENTITY_MISMATCH",
             "the expected DevSpace port is owned by another process",
@@ -711,8 +753,69 @@ def _assert_devspace_service_identity(
                 "pid": value.get("pid"),
                 "command_line": command_line,
                 "expected_cli_paths": expected_cli_paths,
+                "reason": reason,
             },
         )
+
+    if len(argv) != 3 or argv[2] != "serve":
+        reject("command-shape")
+    executable_value = str(
+        value.get("executable_path") or value.get("executable_final_path") or ""
+    ).strip()
+    try:
+        executable_path = Path(executable_value).resolve(strict=True)
+    except OSError:
+        reject("process-executable-unavailable")
+    if executable_path.name.casefold() not in {"node", "node.exe"}:
+        reject("process-executable-not-node")
+    command_executable = Path(argv[0])
+    if command_executable.name.casefold() not in {"node", "node.exe"}:
+        reject("command-executable-not-node")
+    if command_executable.is_absolute() or command_executable.parent != Path("."):
+        try:
+            if not _same_path(command_executable.resolve(strict=True), executable_path):
+                reject("command-executable-mismatch")
+        except OSError:
+            reject("command-executable-unavailable")
+
+    try:
+        cli_path = Path(argv[1]).resolve(strict=True)
+    except OSError:
+        reject("cli-path-unavailable")
+    cli_parts = [part.casefold() if os.name == "nt" else part for part in cli_path.parts[-5:]]
+    expected_parts = ["node_modules", "@waishnav", "devspace", "dist", "cli.js"]
+    if cli_parts != expected_parts:
+        reject("cli-package-shape")
+    actual_root = cli_path.parents[1]
+
+    resolved_roots: list[Path] = []
+    for root in package_roots:
+        try:
+            resolved_roots.append(root.resolve(strict=True))
+        except OSError:
+            continue
+    try:
+        actual_version = package_version(actual_root)
+    except DevSpaceCompatError:
+        reject("package-metadata")
+    if actual_version == LEGACY_LKG_VERSION and any(
+        _same_path(actual_root, expected_root) for expected_root in resolved_roots
+    ):
+        return value
+    if actual_version != SUPPORTED_VERSION:
+        reject("package-version")
+
+    try:
+        actual_cli_hash = _validated_current_service_package(actual_root)
+        expected_cli_hashes = {
+            _validated_current_service_package(expected_root)
+            for expected_root in resolved_roots
+            if package_version(expected_root) == SUPPORTED_VERSION
+        }
+    except DevSpaceCompatError as exc:
+        reject(str(exc.evidence.get("reason") or "package-validation"))
+    if actual_cli_hash not in expected_cli_hashes:
+        reject("cli-hash-not-expected")
     return value
 
 

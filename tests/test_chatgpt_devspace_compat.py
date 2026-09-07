@@ -36,6 +36,43 @@ def digest(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
+def prepare_service_package(
+    compat,
+    package: Path,
+    *,
+    version: str | None = None,
+    cli_bytes: bytes = b"#!/usr/bin/env node\n",
+    patched_bytes: bytes = b"patched service bytes\n",
+    replace_patches: bool = True,
+) -> Path:
+    (package / "dist").mkdir(parents=True, exist_ok=True)
+    (package / "package.json").write_text(
+        json.dumps({
+            "name": "@waishnav/devspace",
+            "version": version or compat.SUPPORTED_VERSION,
+        }),
+        encoding="utf-8",
+    )
+    cli = package / "dist" / "cli.js"
+    cli.write_bytes(cli_bytes)
+    if replace_patches:
+        (package / "dist" / "server.js").write_bytes(patched_bytes)
+        compat.PATCHES = {
+            "dist/server.js": {
+                "patch": "unused.patch",
+                "pristine": digest(b"pristine service bytes\n"),
+                "patched": digest(patched_bytes),
+            }
+        }
+    return cli
+
+
+def fake_node_executable(tmp_path: Path) -> Path:
+    node = tmp_path / ("node.exe" if os.name == "nt" else "node")
+    node.write_bytes(b"test node executable\n")
+    return node
+
+
 def test_compat_tests_use_an_isolated_restart_marker(tmp_path: Path) -> None:
     compat = load_compat()
 
@@ -226,8 +263,8 @@ def test_exact_devspace_patch_is_hash_gated_idempotent_and_backed_up(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     compat = load_compat()
-    package = tmp_path / "package"
-    package.mkdir()
+    package = tmp_path / "node_modules" / "@waishnav" / "devspace"
+    package.mkdir(parents=True)
     (package / "package.json").write_text(json.dumps({"version": compat.SUPPORTED_VERSION}), encoding="utf-8")
     target = package / "sample.txt"
     target.write_bytes(b"before\n")
@@ -252,6 +289,8 @@ def test_exact_devspace_patch_is_hash_gated_idempotent_and_backed_up(
     compat.patch_root = lambda: patches
     monkeypatch.setenv("CODEX_DEVSPACE_COMPAT_STATE_ROOT", str(tmp_path / "state"))
     backup = tmp_path / "backup"
+    cli = prepare_service_package(compat, package, replace_patches=False)
+    node = fake_node_executable(tmp_path)
 
     first = compat.ensure_devspace_compatibility(package_root=package, backup_root=backup)
     second = compat.ensure_devspace_compatibility(package_root=package, backup_root=backup)
@@ -259,7 +298,8 @@ def test_exact_devspace_patch_is_hash_gated_idempotent_and_backed_up(
         package_root=package,
         service_probe=lambda port: {
             "pid": 22,
-            "command_line": f"node {package / 'dist' / 'cli.js'} serve",
+            "command_line": f'node "{cli}" serve',
+            "executable_path": str(node),
             "started_at_unix_ns": 2**63 - 1,
             "local_port": port,
         },
@@ -330,8 +370,8 @@ def test_restart_confirmation_rejects_old_or_foreign_listener(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     compat = load_compat()
-    package = tmp_path / "package"
-    package.mkdir()
+    package = tmp_path / "node_modules" / "@waishnav" / "devspace"
+    package.mkdir(parents=True)
     (package / "package.json").write_text(json.dumps({"version": compat.SUPPORTED_VERSION}), encoding="utf-8")
     (package / "sample.txt").write_bytes(b"after\n")
     compat.PATCHES = {
@@ -378,8 +418,8 @@ def test_restart_confirmation_waits_through_managed_npx_cold_start(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     compat = load_compat()
-    package = tmp_path / "package"
-    package.mkdir()
+    package = tmp_path / "node_modules" / "@waishnav" / "devspace"
+    package.mkdir(parents=True)
     (package / "package.json").write_text(
         json.dumps({"version": compat.SUPPORTED_VERSION}), encoding="utf-8"
     )
@@ -391,6 +431,8 @@ def test_restart_confirmation_waits_through_managed_npx_cold_start(
             "patched": digest(b"after\n"),
         }
     }
+    cli = prepare_service_package(compat, package, replace_patches=False)
+    node = fake_node_executable(tmp_path)
     monkeypatch.setenv("CODEX_DEVSPACE_COMPAT_STATE_ROOT", str(tmp_path / "state"))
     marker = compat._write_restart_marker([package])
     marker_payload = json.loads(marker.read_text(encoding="utf-8"))
@@ -413,13 +455,15 @@ def test_restart_confirmation_waits_through_managed_npx_cold_start(
         if probes < 241:
             return {
                 "pid": 11,
-                "command_line": f"node {package / 'dist' / 'cli.js'} serve",
+                "command_line": f'node "{cli}" serve',
+                "executable_path": str(node),
                 "started_at_unix_ns": patched_at - 1,
                 "local_port": port,
             }
         return {
             "pid": 22,
-            "command_line": f"node {package / 'dist' / 'cli.js'} serve",
+            "command_line": f'node "{cli}" serve',
+            "executable_path": str(node),
             "started_at_unix_ns": patched_at + 1,
             "local_port": port,
         }
@@ -451,14 +495,17 @@ def test_restart_confirmation_waits_through_managed_npx_cold_start(
     assert not marker.exists()
 
 
-def test_stop_service_requires_exact_devspace_identity() -> None:
+def test_stop_service_requires_exact_devspace_identity(tmp_path: Path) -> None:
     compat = load_compat()
     stopped: list[int] = []
-    package = Path("C:/tested/node_modules/@waishnav/devspace")
+    package = tmp_path / "node_modules" / "@waishnav" / "devspace"
+    cli = prepare_service_package(compat, package)
+    node = fake_node_executable(tmp_path)
     first_identity = {
-                "pid": 44,
-                "command_line": f"node {package / 'dist' / 'cli.js'} serve",
-                "started_at_unix_ns": 1,
+        "pid": 44,
+        "command_line": f'node "{cli}" serve',
+        "executable_path": str(node),
+        "started_at_unix_ns": 1,
     }
     first_probes = iter([first_identity, None])
     result = compat.stop_exact_devspace_service(
@@ -469,12 +516,12 @@ def test_stop_service_requires_exact_devspace_identity() -> None:
     assert result["stopped"] is True
     assert stopped == [44]
 
+    npx_cli = package.parent.parent / ".bin" / ".." / "@waishnav" / "devspace" / "dist" / "cli.js"
     npx_identity = {
-                "pid": 45,
-            "command_line": (
-                r'"node" "C:\tested\node_modules\.bin\\..\@waishnav\devspace\dist\cli.js" serve'
-            ),
-                "started_at_unix_ns": 1,
+        "pid": 45,
+        "command_line": f'"node" "{npx_cli}" serve',
+        "executable_path": str(node),
+        "started_at_unix_ns": 1,
     }
     npx_probes = iter([npx_identity, None])
     npx_result = compat.stop_exact_devspace_service(
@@ -490,6 +537,7 @@ def test_stop_service_requires_exact_devspace_identity() -> None:
             service_probe=lambda port: {
                 "pid": 55,
                 "command_line": "node unrelated.js",
+                "executable_path": str(node),
                 "started_at_unix_ns": 1,
             },
             stopper=stopped.append,
@@ -498,23 +546,115 @@ def test_stop_service_requires_exact_devspace_identity() -> None:
     assert foreign.value.code == "DEVSPACE_SERVICE_IDENTITY_MISMATCH"
 
 
+def test_service_identity_accepts_equivalent_cache_package_and_rejects_forgeries(
+    tmp_path: Path,
+) -> None:
+    compat = load_compat()
+    expected = (
+        tmp_path
+        / "Packages"
+        / "OpenAI.Codex_test"
+        / "LocalCache"
+        / "Local"
+        / "npm-cache"
+        / "_npx"
+        / "expected"
+        / "node_modules"
+        / "@waishnav"
+        / "devspace"
+    )
+    actual = (
+        tmp_path
+        / "Local"
+        / "npm-cache"
+        / "_npx"
+        / "actual"
+        / "node_modules"
+        / "@waishnav"
+        / "devspace"
+    )
+    expected_cli = prepare_service_package(compat, expected)
+    actual_cli = prepare_service_package(compat, actual)
+    node = fake_node_executable(tmp_path)
+
+    accepted = compat._assert_devspace_service_identity(
+        {
+            "pid": 71,
+            "command_line": f'"node" "{actual_cli}" serve',
+            "executable_path": str(node),
+        },
+        [expected],
+    )
+    assert accepted["pid"] == 71
+    assert expected_cli.read_bytes() == actual_cli.read_bytes()
+
+    wrong_version = tmp_path / "wrong-version" / "node_modules" / "@waishnav" / "devspace"
+    wrong_version_cli = prepare_service_package(
+        compat, wrong_version, version="9.9.9", replace_patches=False
+    )
+    (wrong_version / "dist" / "server.js").write_bytes(
+        (expected / "dist" / "server.js").read_bytes()
+    )
+
+    wrong_hash = tmp_path / "wrong-hash" / "node_modules" / "@waishnav" / "devspace"
+    wrong_hash_cli = prepare_service_package(compat, wrong_hash, replace_patches=False)
+    (wrong_hash / "dist" / "server.js").write_bytes(b"tampered service bytes\n")
+
+    wrong_name = tmp_path / "wrong-name" / "node_modules" / "@waishnav" / "devspace"
+    wrong_name_cli = prepare_service_package(compat, wrong_name, replace_patches=False)
+    (wrong_name / "package.json").write_text(
+        json.dumps({"name": "forged-devspace", "version": compat.SUPPORTED_VERSION}),
+        encoding="utf-8",
+    )
+    (wrong_name / "dist" / "server.js").write_bytes(
+        (expected / "dist" / "server.js").read_bytes()
+    )
+
+    forged_cli = Path(f"{actual_cli}.forged")
+    forged_cli.write_bytes(actual_cli.read_bytes())
+    python_executable = tmp_path / ("python.exe" if os.name == "nt" else "python")
+    python_executable.write_bytes(b"not node\n")
+    rejected = [
+        (wrong_version_cli, "serve", node),
+        (wrong_hash_cli, "serve", node),
+        (wrong_name_cli, "serve", node),
+        (actual_cli, "status", node),
+        (forged_cli, "serve", node),
+        (actual_cli, "serve", python_executable),
+    ]
+    for pid, (cli, subcommand, executable) in enumerate(rejected, start=72):
+        with pytest.raises(compat.DevSpaceCompatError) as mismatch:
+            compat._assert_devspace_service_identity(
+                {
+                    "pid": pid,
+                    "command_line": f'"node" "{cli}" {subcommand}',
+                    "executable_path": str(executable),
+                },
+                [expected],
+            )
+        assert mismatch.value.code == "DEVSPACE_SERVICE_IDENTITY_MISMATCH"
+
+
 def test_service_stop_resolves_current_and_lkg_roots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     compat = load_compat()
-    current = tmp_path / "current"
-    lkg = tmp_path / "lkg"
-    foreign = tmp_path / "foreign"
-    for root, version in ((current, compat.SUPPORTED_VERSION), (lkg, compat.LEGACY_LKG_VERSION), (foreign, "9.9.9")):
-        root.mkdir()
-        (root / "package.json").write_text(json.dumps({"version": version}), encoding="utf-8")
+    current = tmp_path / "current" / "node_modules" / "@waishnav" / "devspace"
+    lkg = tmp_path / "lkg" / "node_modules" / "@waishnav" / "devspace"
+    foreign = tmp_path / "foreign" / "node_modules" / "@waishnav" / "devspace"
+    prepare_service_package(compat, current)
+    prepare_service_package(compat, lkg, version=compat.LEGACY_LKG_VERSION, replace_patches=False)
+    prepare_service_package(compat, foreign, version="9.9.9", replace_patches=False)
+    node = fake_node_executable(tmp_path)
     monkeypatch.setattr(compat, "_candidate_roots", lambda: [foreign, lkg, current])
 
     assert compat.resolve_service_stop_roots() == [current.resolve(), lkg.resolve()]
 
     stopped: list[int] = []
+    lkg_cli = lkg / "dist" / "cli.js"
     identity = {
-                "pid": 46,
-            "command_line": f"node {lkg / 'dist' / 'cli.js'} serve",
-                "started_at_unix_ns": 1,
+        "pid": 46,
+        "command_line": f'node "{lkg_cli}" serve',
+        "executable_path": str(node),
+        "started_at_unix_ns": 1,
     }
     probes = iter([identity, None])
     result = compat.stop_exact_devspace_service(
@@ -525,12 +665,15 @@ def test_service_stop_resolves_current_and_lkg_roots(tmp_path: Path, monkeypatch
     assert stopped == [46]
 
 
-def test_windows_stop_requires_pid_start_binding_and_listener_release() -> None:
+def test_windows_stop_requires_pid_start_binding_and_listener_release(tmp_path: Path) -> None:
     compat = load_compat()
-    package = Path("C:/tested/node_modules/@waishnav/devspace")
+    package = tmp_path / "node_modules" / "@waishnav" / "devspace"
+    cli = prepare_service_package(compat, package)
+    node = fake_node_executable(tmp_path)
     identity = {
         "pid": 60008,
-        "command_line": f"node {package / 'dist' / 'cli.js'} serve",
+        "command_line": f'node "{cli}" serve',
+        "executable_path": str(node),
         "started_at_unix_ns": 123_000_000,
     }
     probes = iter([identity, None])
@@ -605,12 +748,18 @@ def test_service_identity_accepts_posix_npm_shim_only_for_exact_package(
     cli = package / "dist" / "cli.js"
     cli.parent.mkdir(parents=True)
     cli.write_text("#!/usr/bin/env node\n", encoding="utf-8")
+    prepare_service_package(compat, package, replace_patches=True)
+    node = fake_node_executable(tmp_path)
     shim = tmp_path / "node_modules" / ".bin" / "devspace"
     shim.parent.mkdir()
     shim.symlink_to(cli)
 
     identity = compat._assert_devspace_service_identity(
-        {"pid": 77, "command_line": f"node {shim} serve"},
+        {
+            "pid": 77,
+            "command_line": f"node {shim} serve",
+            "executable_final_path": str(node),
+        },
         [package],
     )
 
@@ -627,6 +776,8 @@ def test_service_identity_rejects_posix_npm_shim_for_foreign_package(
     cli = package / "dist" / "cli.js"
     cli.parent.mkdir(parents=True)
     cli.write_text("#!/usr/bin/env node\n", encoding="utf-8")
+    prepare_service_package(compat, package, replace_patches=True)
+    node = fake_node_executable(tmp_path)
     foreign_cli = tmp_path / "foreign-cli.js"
     foreign_cli.write_text("#!/usr/bin/env node\n", encoding="utf-8")
     shim = tmp_path / "node_modules" / ".bin" / "devspace"
@@ -635,7 +786,11 @@ def test_service_identity_rejects_posix_npm_shim_for_foreign_package(
 
     with pytest.raises(compat.DevSpaceCompatError) as mismatch:
         compat._assert_devspace_service_identity(
-            {"pid": 88, "command_line": f"node {shim} serve"},
+            {
+                "pid": 88,
+                "command_line": f"node {shim} serve",
+                "executable_final_path": str(node),
+            },
             [package],
         )
 

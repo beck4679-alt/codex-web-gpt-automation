@@ -35,8 +35,17 @@ DEVSPACE_APP_NAME = WORKSPACE_CONFIG.DEFAULT_APP_NAME
 # Current ChatGPT exposes Pro as the maximum effort for GPT-5.6 Sol, not as a
 # separate model row.  The validated Oracle current/LKG contracts verify that
 # Pro effort independently.
-PRO_MODEL = "gpt-5.6-sol"
+ORACLE_MODEL = "gpt-5.6-sol"
+ORACLE_MODEL_STRATEGY = "current"
+PRO_MODEL = ORACLE_MODEL
 PRO_THINKING_TIME = "pro"
+_CURRENT_EFFORT_UI = {
+    "light": (1, "light / 1 of 5"),
+    "standard": (2, "standard / 2 of 5"),
+    "extended": (3, "extended / 3 of 5"),
+    "extra-high": (4, "extra-high / 4 of 5"),
+    "pro": (5, "6 Pro"),
+}
 PRO_COMPOSER_PROMPT = (
     "Read the attached prompt/instructions and all attached files, then provide read-only analysis only. "
     "Do not create, edit, delete, or rename files; do not run commands or change settings, accounts, or external state."
@@ -124,6 +133,20 @@ def _resolve_reasoning(requested: str | None) -> str:
     )
 
 
+def _browser_intent(thinking_time: str) -> dict[str, Any]:
+    ordinal, displayed_effort = _CURRENT_EFFORT_UI[thinking_time]
+    return {
+        "schema": "codex.chatgpt.oracle-browser-intent/v1",
+        "model_row": "Latest",
+        "model_selection": "explicit",
+        "thinking_time": thinking_time,
+        "slider_ordinal": ordinal,
+        "slider_total": 5,
+        "displayed_effort": displayed_effort,
+        "verification": "observed-log-required",
+    }
+
+
 def composer_handoff(mission_path: str | Path, app_name: str | None = None) -> str:
     """The only regular-GPT composer text: app mention plus the absolute mission."""
     mission = _absolute_mission_path(mission_path)
@@ -201,6 +224,12 @@ def build_launch_contract(
         })
         return result
     mission = _absolute_mission_path(mission_path)
+    # Every new named launch explicitly targets the provider's Latest row.
+    # The model slug remains CLI compatibility metadata only.
+    result.update({
+        "model": ORACLE_MODEL,
+        "model_strategy": ORACLE_MODEL_STRATEGY,
+    })
     if profile.mode == "pro-attachment":
         attachments = _attachment_paths(attachment_paths)
         if mission not in attachments:
@@ -209,15 +238,16 @@ def build_launch_contract(
             raise OracleProfileError("PRO_ATTACHMENTS_REQUIRED", "Pro requires at least one exact attachment")
         result.update({
             "route": "oracle-pro-attachment-only",
+            "pro_selection_policy": "standing-policy-approved",
             "app_policy": "forbidden",
             "attachment_policy": "always",
             "attachments": [str(path) for path in attachments],
-            "model": PRO_MODEL,
             "reasoning_level": "Pro",
             # The current ChatGPT effort menu exposes the fifth tier as Pro.
             # Keep it explicit so parent runners cannot fall back to regular
             # Extra High or the retired Heavy compatibility spelling.
             "thinking_time": PRO_THINKING_TIME,
+            "browser_intent": _browser_intent(PRO_THINKING_TIME),
             "mission_path": str(mission),
             "composer_prompt": PRO_COMPOSER_PROMPT,
         })
@@ -230,13 +260,13 @@ def build_launch_contract(
             )
         result.update({
             "route": "oracle-pro-devspace-readonly",
+            "pro_selection_policy": "standing-policy-approved",
             "app_policy": "prompt-mention-only",
             "attachment_policy": "forbidden",
             "app_name": resolved_app_name,
-            "model": PRO_MODEL,
-            "model_strategy": "select",
             "reasoning_level": "Pro",
             "thinking_time": PRO_THINKING_TIME,
+            "browser_intent": _browser_intent(PRO_THINKING_TIME),
             "action_authority": "read-only",
             "write_handoff": "regular-gpt-5.6-extra-high-devspace",
             "mission_path": str(mission),
@@ -269,6 +299,7 @@ def build_launch_contract(
         # effort. Keep this in the mode contract so dispatch cannot silently
         # turn a requested High run into Extra High or Pro.
         "thinking_time": REGULAR_THINKING_TIME[reasoning],
+        "browser_intent": _browser_intent(REGULAR_THINKING_TIME[reasoning]),
         "action_authority": "mission-scoped-write" if profile.mode in WRITE_CAPABLE_REGULAR_MODES else "mission-scoped",
         "mission_path": str(mission),
         "composer_prompt": composer_handoff(mission, resolved_app_name),

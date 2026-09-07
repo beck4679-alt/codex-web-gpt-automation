@@ -16,19 +16,28 @@ preserve unrelated local customizations.
 2. Inspect source Git status and the installed file identity before editing.
    Never overwrite credentials, browser profiles, runtime state, or unrelated
    user changes.
-3. For non-trivial GPT automation design or implementation, use the selected
-   current GPT workflow only when the user asked for web delegation. Every new
-   ChatGPT run uses Oracle:
-   - regular modes, Deep Research, comprehensive stages, and Web Multi use
-     Oracle plus the manually registered DevSpace app;
-    - regular web work defaults to the highest supported non-Pro reasoning tier;
-      only explicit user opt-in selects new qualified Pro with `GPT-5.6 Sol` at
-      the Pro effort and read-only DevSpace for design, advice, or review. A
-      regular `GPT-5.6` `extra-high` DevSpace stage performs file mutations and
-      commands. Explicit `pro-attachment` remains a separate read-only
-      immutable/external-evidence route and is never an automatic fallback;
-      persisted legacy `pro-devspace` write runs retain their exact authority
-      only during recovery;
+3. Apply the standing routing policy to new work without asking for per-run
+   web or Pro approval:
+   - every non-implementation cognitive requirement, including requirements,
+     design, planning, research, comparison, advice, critique, review,
+     adjudication, and semantic verification, uses Oracle with the manually
+     registered `@codex` app. Browser proof requires exact `Latest` checked,
+     full `5/5` qualification, the composer's `Thinking effort` control, and a
+     `6 Pro` signal in either the model menu or composer;
+   - never fall back to GPT-5.6 or GPT-5.5 when that picker state cannot be
+     proven, and never route through CGW or `chatgpt-web/*`;
+   - native `gpt-5.6-sol` owns implementation, repair, file mutations, and
+     commands; native Luna owns chores and focused tests; Astra owns
+     orchestration, exact recovery, deterministic evidence, integration, and
+     release;
+   - the Oracle manifest uses the validated compatibility carrier
+     `model: gpt-5.6-sol`, `model_strategy: current`, and
+     `thinking_time: pro`; do not invent a `gpt-6` or `latest` CLI slug or
+     claim a new engine;
+   - comprehensive, Web Multi, `pro-attachment`, selector-era profiles, and
+     persisted legacy `pro-devspace` runs are explicit compatibility workflows.
+     Preserve their schemas, receipts, and recorded authority during exact
+     execution or recovery; do not silently select them or rewrite authority;
    - CodexPro/agbrowse may be used only for exact recovery of an already
      persisted legacy run and never as a fallback.
 4. Prefer small compatibility changes over wholesale replacement. Preserve
@@ -36,7 +45,7 @@ preserve unrelated local customizations.
    explicitly changes them.
 5. Batch coherent edits, inspect the final diff once, run focused regression
    tests, then broader tests according to blast radius.
-6. Synchronize reusable GPT automation changes to the authoritative
+6. Unless the current task explicitly requires source-only work, synchronize reusable GPT automation changes to the authoritative
    `codex-web-gpt-automation` source, install the verified bytes, commit with a
    descriptive message, push public-safe changes, and check CI.
 
@@ -67,7 +76,11 @@ local patches were originally written for it.
   package tree, rebasing every required local patch with pristine/patched
   hashes, running syntax and focused compatibility checks, proving an Oracle
   no-submission canary and DevSpace health/root/large-read canaries, and passing
-  Windows, macOS, and Linux CI on the release commit. A DevSpace canary must prove
+  Windows, macOS, and Linux CI on the release commit. The browser canary must
+  emit a structured observed-picker receipt binding exact `Latest` checked,
+  full `5/5` qualification, the composer's `Thinking effort` control, and a
+  `6 Pro` signal observed in either the model menu or composer; a log line or
+  requested manifest values alone are not sufficient. A DevSpace canary must prove
   `open_workspace`, a separate mission-file `read` through the same returned
   workspace ID, and a `read_chunk` complete SHA-256 matching the local mission
   bytes; HTTP health, bundled instructions, or workspace-open success alone

@@ -115,7 +115,7 @@ OAuth 또는 도구 호출이 계속 오래되면 `https://chatgpt.com/#settings
 `codex` 앱을 선택하고 `Reconnect`/`다시 연결`을 직접 실행합니다. Business라는 이유나
 `Refresh`가 보이지 않는다는 이유만으로 앱을 삭제·재등록하지 않습니다. `post-register`는
 방금 등록했거나 다시 연결한 뒤 `08_final_gate` 또는 진단이 요구할 때만 정확히 한 번
-실행하고, 이어서 새 일반 비-Pro auditNonce canary를 실행합니다. 앱 레코드가 실제로
+실행하고, 이어서 최신을 명시적으로 선택하는 Pro auditNonce canary를 실행합니다. 앱 레코드가 실제로
 없거나 손상되어 기존 앱을 선택·갱신·재연결할 수 없을 때만 예외적으로 같은 정확한 이름과
 `/mcp` URL로 다시 만듭니다.
 
@@ -128,12 +128,20 @@ HTTPS origin을 제공합니다. 설치 뒤에도 경고가 남으면 기존 앱
 ### 실제 연결 확인
 
 인증 없는 local/public `/mcp`의 HTTP `401`은 정상입니다. 연결 거부 또는 timeout은
-정상이 아닙니다. 최종 단계 `08_final_gate`는 마법사 상태가 `ready`이고, 새 일반
-(non-Pro) Oracle `@<앱이름>` 읽기 전용 검사가 exact 프로젝트 root를 열어 작은
+정상이 아닙니다. 최종 단계 `08_final_gate`는 마법사 상태가 `ready`이고, 새 Latest/Pro
+Oracle `@<앱이름>` 읽기 전용 검사가 exact 프로젝트 root를 열어 작은
 디렉터리 목록을 읽을 때만 통과합니다. Codex Desktop 내장 DevSpace 플러그인은 다른
-연결이므로 이 검증 증거로 사용하지 않으며, 첫 검증에 Pro 세션을 쓰지 않습니다.
+연결이므로 이 검증 증거로 사용하지 않습니다. 모델 목록에서 `최신`을 명시적으로
+선택한 뒤 추론 수준을 Pro로 바꿉니다. Oracle의 `current` 인자는 호환용이며,
+기존 모델을 그대로 두라는 뜻이 아닙니다. `6 Pro` 표시와 모델 목록의 `최신` 선택을 확인하며,
+GPT-5.6을 직접 선택하지 않습니다. 알 수 없는 `gpt-6`/`latest`를 Oracle 모델 키로
+전달하지 않습니다.
 
-일반 비-Pro Oracle에서 실제 읽기를 확인한 뒤에만 gate를 기록합니다. 요약은 충분히
+Oracle이 `6 Pro`를 정식 지원하고 모델 표시, 무제출 검사, 실제 프로젝트 읽기가 모두
+검증될 때까지 이 `current` + Pro 호환 경로를 유지합니다. Oracle 업데이트 자체는
+경로 변경의 근거가 아닙니다.
+
+Latest/Pro Oracle에서 실제 읽기를 확인한 뒤에만 gate를 기록합니다. 요약은 충분히
 구체적으로 쓰고, 관찰한 디렉터리 항목을 하나 이상 넣습니다. `--listing`은 반복할 수
 있습니다.
 
@@ -160,12 +168,11 @@ python onboard.py record-final-gate --run-dir <Oracle run 디렉터리> `
 ```
 
 마법사는 run이 `%USERPROFILE%\.codex\state` 아래에 있는지, exact root/app 이름,
-일반 `GPT-5.6` extra-high, terminal EXECUTED, conversation URL, output SHA-256과
+`current` 모델 전략과 Pro 추론 수준의 관찰 증거, terminal EXECUTED, conversation URL, output SHA-256과
 `TASK_OUTCOME: EXECUTED` 최종 행까지 재검증합니다. 임의의 설명문이나 다른 커넥터의
 목록을 증거로 넣을 수 없습니다. 증거 요약이 너무 짧거나 목록이 없으면
 `FINAL_GATE_EVIDENCE_INSUFFICIENT`로 거부합니다.
-일반 비-Pro Oracle 이외의 transport는
-`FINAL_GATE_TRANSPORT_MUST_BE_REGULAR_NON_PRO_ORACLE`로 거부합니다.
+최종 검증에 허용되지 않은 transport나 모델/추론 수준 증거는 거부합니다.
 
 canary는 반드시 같은 workspaceId의 `open_workspace`, 별도 `read`, 같은 파일의 offset
 0부터 EOF까지 `read_chunk` 및 서버 생성 receipt ID 세 개를 모두 증명해야 합니다.
@@ -218,12 +225,12 @@ python "$env:USERPROFILE\.codex\bin\codex_global_agents_setup.py" --apply
 python "$env:USERPROFILE\.codex\bin\codex_global_agents_setup.py" --doctor
 ```
 
-주 에이전트는 GPT-5.6 Sol high, 일반 서브에이전트 기본값은 GPT-5.6 Terra
-medium입니다. 생성 작업의 하드 상한은 3개이고 정책상 기본 동시 작업자는
-2명입니다. `scout`는 Luna max/read-only, `implementer`는 명시된 파일만
-맡는 Terra high, `verifier`는 Terra high/read-only입니다. 불안정한
-`multi_agent_v2`는 켜지 않습니다. 적용 후 Codex를 재시작해야 새 작업이 전역
-설정과 역할 목록을 다시 읽습니다.
+Astra는 구성된 주 지휘자 설정을 그대로 유지합니다. 비구현 인지 작업은 Oracle
+`@codex`의 exact `Latest` checked와 `6 Pro` UI 신호, 구현·수정·명령은 네이티브
+`gpt-5.6-sol`, 잡무·집중 테스트는 네이티브 Luna가 맡습니다. Astra는 조정, exact
+복구, 결정적 검증, 통합과 릴리스를 담당합니다. CGW와 `chatgpt-web/*`는 사용하지
+않습니다. 생성 작업의 하드 상한은 3개이고 정책상 기본 동시 작업자는 2명입니다.
+적용 후 Codex를 재시작해야 새 작업이 전역 설정과 역할 목록을 다시 읽습니다.
 
 macOS:
 
@@ -405,17 +412,50 @@ python skills/chatgpt-workspace-setup/scripts/devspace_tailscale_setup.py post-r
   --hostname your-device.your-tailnet.ts.net
 ```
 
-그 다음 새 일반(non-Pro) Oracle `@<앱이름>` 읽기 전용 검사로 exact 프로젝트를 열고
+그 다음 최신을 명시적으로 선택하는 Pro Oracle `@<앱이름>` 읽기 전용 검사로 exact 프로젝트를 열고
 작은 디렉터리 목록을 읽습니다. Codex Desktop에 내장된 `DevSpace` 플러그인은 수동
 등록한 ChatGPT 앱과 다른 연결이므로 그 도구 결과로 앱 등록을 판정하지 않습니다.
-첫 연결 검증에 Pro 세션을 사용하지 않습니다.
+모델 목록에서 최신을 명시적으로 선택한 뒤 Pro로 설정하며 실제 읽기 증거까지 확인합니다.
 
-설치 후 일반 웹 작업은 최고 지원 비-Pro 추론 강도를 사용합니다. Pro는 횟수 제한이
-있으므로 사용자가 명시적으로 요청한 경우에만 선택하며 자동 승격하지 않습니다. 명시
-선택된 신규 Pro는 exact root에서 설계·자문·검토만 하는 읽기 전용 DevSpace를 사용합니다.
-파일 생성·수정·삭제와 명령 실행은 최고 지원 비-Pro `GPT-5.6` `extra-high` regular
-DevSpace 단계가 맡습니다. 저장된 legacy `pro-devspace` 쓰기 실행은 정확한 복구에서만
-원래 권한을 유지합니다.
+설치 후 요구사항·설계·계획·조사·비교·자문·비평·검토·판정·의미 검증은 별도
+매회 승인 없이 Oracle `@codex`를 사용합니다. 모델 메뉴에서 `Latest`를, composer
+thinking에서 `6 Pro`를 명시적으로 선택해야 하며, 두 관찰값을 증명하지 못하면
+GPT-5.6/5.5로 낮추지 않고 실패 폐쇄합니다. 구현·수정·명령은 네이티브 Sol,
+잡무와 집중 테스트는 네이티브 Luna, 복구와 결정적 릴리스 판정은 Astra가 맡습니다.
+기존 comprehensive/Web Multi/selector-era 프로필과 저장된 권한은 명시적 호환 실행
+및 exact 복구에서만 그대로 보존합니다.
+
+설치된 runner에 전달하는 manifest는 새 엔진 이름이 아니라 검증된 CLI carrier를
+사용합니다. 아래 예시는 사설 사용자 경로가 없는 새 기본 인지 실행 예시입니다.
+
+```json
+{
+  "schema": "codex.chatgpt.oracle-run/v1",
+  "project_root": "C:\\projects\\alpha",
+  "mission_path": "C:\\projects\\alpha\\missions\\cognitive-review.md",
+  "app_name": "codex",
+  "mode": "browser",
+  "transport": "pro-devspace-readonly",
+  "model": "gpt-5.6-sol",
+  "model_strategy": "current",
+  "thinking_time": "pro",
+  "research": "off",
+  "task_outcome_contract": "v1",
+  "archive": "never"
+}
+```
+
+```powershell
+python "$env:USERPROFILE\.codex\bin\chatgpt_oracle_run.py" run `
+  --manifest C:\projects\alpha\missions\oracle-latest-6-pro.json --dry-run
+python "$env:USERPROFILE\.codex\bin\chatgpt_oracle_run.py" run `
+  --manifest C:\projects\alpha\missions\oracle-latest-6-pro.json
+```
+
+`gpt-5.6-sol`/`current`/`pro`는 알려진 carrier입니다. `gpt-6` 또는 `latest` 같은
+모델 slug를 만들지 않습니다. live 성공에는 exact `Latest` checked, 전체 `5/5`,
+composer의 `Thinking effort` control, 그리고 model menu 또는 composer에서 관찰한
+`6 Pro` signal을 실행·미션 신원에 결속한 structured observed-picker receipt가 필요합니다.
 
 Oracle이 같은 이름을 사용하도록 로컬 공개 설정을 기록합니다.
 

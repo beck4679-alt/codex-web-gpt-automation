@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import locale as locale_module
 import os
@@ -19,7 +20,7 @@ import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 
 RECEIPT_SCHEMA = "codexpro.install-receipt/v3"
@@ -48,6 +49,8 @@ SUPPORTED_ROOTS = {
 ROOT_FILE_ALLOWLIST = frozenset(
     {"upstream-runtime-policy.json", "upstream-runtime-maintainer-automation.json"}
 )
+ORACLE_SUPPORTED_VERSION = "0.18.0"
+ORACLE_VERSION_PROBE_TIMEOUT_SECONDS = 30
 
 
 class LifecycleError(RuntimeError):
@@ -403,13 +406,90 @@ def _resolve_python_tool(*, platform_name: str = os.name, active_executable: str
     return python_tool
 
 
-def doctor(codex_home: Path) -> dict[str, Any]:
+def _load_oracle_runtime_module(codex_home: Path) -> Any:
+    helper = codex_home / "bin" / "chatgpt_oracle_runtime.py"
+    if not helper.is_file():
+        raise LifecycleError(f"Oracle runtime resolver missing: {helper}")
+    spec = importlib.util.spec_from_file_location(
+        f"chatgpt_oracle_runtime_doctor_{hashlib.sha256(str(helper).encode('utf-8')).hexdigest()[:12]}",
+        helper,
+    )
+    if spec is None or spec.loader is None:
+        raise LifecycleError(f"Oracle runtime resolver unavailable: {helper}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _oracle_version_from_output(stdout: str | None, stderr: str | None) -> str | None:
+    for line in f"{stdout or ''}\n{stderr or ''}".splitlines():
+        value = line.strip().removeprefix("oracle ").strip()
+        if value:
+            return value
+    return None
+
+
+def _probe_oracle_runtime(
+    command: Sequence[str],
+    *,
+    run_factory: Callable[..., Any],
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    evidence: dict[str, Any] = {
+        "command": list(command),
+        "version": None,
+        "exit_code": None,
+        "timeout_seconds": ORACLE_VERSION_PROBE_TIMEOUT_SECONDS,
+    }
+    try:
+        completed = run_factory(
+            [*command, "--version"],
+            stdin=subprocess.DEVNULL,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            check=False,
+            timeout=ORACLE_VERSION_PROBE_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return evidence, {
+            "code": "ORACLE_VERSION_TIMEOUT",
+            "timeout_seconds": ORACLE_VERSION_PROBE_TIMEOUT_SECONDS,
+        }
+    except OSError as exc:
+        return evidence, {"code": "ORACLE_EXECUTION_FAILED", "detail": str(exc)}
+    evidence["exit_code"] = int(completed.returncode)
+    evidence["version"] = _oracle_version_from_output(completed.stdout, completed.stderr)
+    if completed.returncode != 0:
+        return evidence, {"code": "ORACLE_VERSION_FAILED", "exit_code": int(completed.returncode)}
+    if evidence["version"] != ORACLE_SUPPORTED_VERSION:
+        return evidence, {
+            "code": "ORACLE_VERSION_MISMATCH",
+            "actual": evidence["version"],
+            "expected": ORACLE_SUPPORTED_VERSION,
+        }
+    return evidence, None
+
+
+def doctor(
+    codex_home: Path,
+    *,
+    oracle_resolver: Callable[[], list[str]] | None = None,
+    oracle_run_factory: Callable[..., Any] | None = None,
+) -> dict[str, Any]:
     codex_home = codex_home.expanduser().resolve()
     issues: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
     receipt_path: Path | None = None
     local_multi_gpt: dict[str, Any] = {"enabled": False, "doctor": None}
     devspace_native_runtime: dict[str, Any] | None = None
+    oracle_runtime: dict[str, Any] = {
+        "command": None,
+        "version": None,
+        "exit_code": None,
+        "timeout_seconds": ORACLE_VERSION_PROBE_TIMEOUT_SECONDS,
+    }
     try:
         receipt_path = latest_receipt(codex_home)
         receipt = _read_json(receipt_path)
@@ -435,9 +515,28 @@ def doctor(codex_home: Path) -> dict[str, Any]:
         if completed is None or completed.returncode != 0 or not local_multi_gpt["doctor"] or not local_multi_gpt["doctor"].get("ok"):
             issues.append({"code": "LOCAL_MULTI_GPT_MCP_INVALID", "detail": completed.stderr.strip() if completed else "helper missing"})
     required = {"python3": _resolve_python_tool(), "node": shutil.which("node"), "npx": shutil.which("npx")}
-    for name, path in required.items():
-        if path is None:
-            issues.append({"code": "TOOL_MISSING", "tool": name})
+    if required["python3"] is None:
+        issues.append({"code": "TOOL_MISSING", "tool": "python3"})
+    try:
+        if oracle_resolver is None:
+            oracle_resolver = _load_oracle_runtime_module(codex_home).resolve_default_oracle_command
+        command = oracle_resolver()
+        if (
+            not isinstance(command, list)
+            or not command
+            or not all(isinstance(value, str) and value for value in command)
+            or not Path(command[0]).is_absolute()
+        ):
+            raise LifecycleError("Oracle runtime resolver returned an invalid command")
+        oracle_runtime, oracle_issue = _probe_oracle_runtime(
+            command,
+            run_factory=oracle_run_factory or subprocess.run,
+        )
+        if oracle_issue is not None:
+            issues.append(oracle_issue)
+    except Exception as exc:
+        code = str(getattr(exc, "code", "") or "ORACLE_RUNTIME_UNRESOLVED")
+        issues.append({"code": code, "detail": str(exc)})
     compat_helper = codex_home / "bin" / "chatgpt_devspace_compat.py"
     if compat_helper.is_file() and required.get("node"):
         native = subprocess.run(
@@ -489,6 +588,7 @@ def doctor(codex_home: Path) -> dict[str, Any]:
         "issues": issues,
         "warnings": warnings,
         "tools": required,
+        "oracle_runtime": oracle_runtime,
         "local_multi_gpt": local_multi_gpt,
         "devspace_native_runtime": devspace_native_runtime,
     }

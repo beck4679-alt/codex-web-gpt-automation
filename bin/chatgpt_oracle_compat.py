@@ -243,17 +243,22 @@ PATCHES = {
     "dist/src/browser/chromeLifecycle.js": {
         "patch": "chromeLifecycle.disable-session-crash-bubble.patch",
         "pristine": "312b45c44d4cd69a3a057e7bd1584b58182b4b37bc88f6ce6c7d11e216267c81",
-        "patched": "f3b405464515e858c9f773d67fa0e94bca07dadff8ea49caa7859ad37e730ff7",
+        "patched": "97720774ecf76dfddcea5649f1fcd5123a3e70bac562dc4518b0bd5cbd0a1bda",
+        "legacy_patched": ["f3b405464515e858c9f773d67fa0e94bca07dadff8ea49caa7859ad37e730ff7"],
+        "legacy_patch": "chromeLifecycle.pre-startup-hygiene.patch",
     },
     "dist/src/browser/actions/thinkingTime.js": {
         "patch": "thinkingTime.gpt56-pro-power-slider.patch",
         "pristine": "3d9d06b08417bca3b2d646eb4d46887d26c5de7c068d1e995c73b6b6e2f61199",
-        "patched": "1aa1a216f71e1213c2056efb0db4c4de7c2b2c505311e1be98c2b6a2784521dd",
+        "patched": "96062af32028119878570c5f3c81a01a5109576b6f2ebe51f30236385a96137c",
         "legacy_patched": [
+            "1aa1a216f71e1213c2056efb0db4c4de7c2b2c505311e1be98c2b6a2784521dd",
             "978f754ba4011957790530474d27d629a8d353dd449f8e2636e02a9abd27b81a",
             "a19ce77fe57b4fa1a290e130da323377ed69b6e51b1ad133b1ab5355ead59345",
         ],
         "legacy_patches": {
+            "1aa1a216f71e1213c2056efb0db4c4de7c2b2c505311e1be98c2b6a2784521dd":
+                "thinkingTime.gpt56-pro-power-slider.pre-latest.patch",
             "a19ce77fe57b4fa1a290e130da323377ed69b6e51b1ad133b1ab5355ead59345":
                 "thinkingTime.gpt56-pro-power-slider.pre-aria-range.patch",
         },

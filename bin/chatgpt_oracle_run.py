@@ -13,6 +13,7 @@ import sys
 import threading
 import time
 import uuid
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -21,6 +22,7 @@ STATE_PATH = Path(__file__).resolve().with_name("chatgpt_oracle_state.py")
 COMPAT_PATH = Path(__file__).resolve().with_name("chatgpt_oracle_compat.py")
 DEVSPACE_COMPAT_PATH = Path(__file__).resolve().with_name("chatgpt_devspace_compat.py")
 DEVSPACE_PREFLIGHT_PATH = Path(__file__).resolve().with_name("chatgpt_devspace_preflight.py")
+RUNTIME_PATH = Path(__file__).resolve().with_name("chatgpt_oracle_runtime.py")
 
 
 def load_state_module():
@@ -79,6 +81,19 @@ def load_devspace_preflight_module():
 
 
 DEVSPACE_PREFLIGHT = load_devspace_preflight_module()
+
+
+def load_runtime_module():
+    spec = importlib.util.spec_from_file_location("chatgpt_oracle_runtime_for_runner", RUNTIME_PATH)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Oracle runtime module unavailable: {RUNTIME_PATH}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+RUNTIME = load_runtime_module()
 
 
 class OracleRunError(RuntimeError):
@@ -1587,6 +1602,7 @@ def execute_run(
     popen_factory: Callable[..., Any] = subprocess.Popen,
     platform_name: str | None = None,
     version_resolver: Callable[..., str] = resolve_oracle_version,
+    default_command_resolver: Callable[[], list[str]] = RUNTIME.resolve_default_oracle_command,
     compat_factory: Callable[[str], dict[str, Any]] = COMPAT.ensure_oracle_compatibility,
     devspace_compat_factory: Callable[[], dict[str, Any]] = (
         DEVSPACE_COMPAT.ensure_devspace_compatibility
@@ -1679,6 +1695,36 @@ def execute_run(
                 "required_thinking_time": STATE.PRO_THINKING_TIME,
             },
         )
+    if (
+        STATE.is_pro_transport(str(config.transport or ""))
+        and str(config.model_strategy or "").strip().casefold() != "current"
+    ):
+        raise OracleRunError(
+            "PRO_MODEL_STRATEGY_LEGACY_FORBIDDEN",
+            "new Pro launches require explicit Latest selection; selector-era state is recovery-only",
+            {
+                "transport": config.transport,
+                "model_strategy": config.model_strategy,
+                "required_model_strategy": "current",
+            },
+        )
+    if not dry_run and config.oracle_command_defaulted:
+        try:
+            resolved_default = default_command_resolver()
+        except Exception as exc:
+            raise OracleRunError(
+                str(getattr(exc, "code", "ORACLE_RUNTIME_UNAVAILABLE")),
+                str(exc),
+                dict(getattr(exc, "evidence", {}) or {}),
+            ) from exc
+        if not isinstance(resolved_default, list) or not resolved_default or not all(
+            isinstance(item, str) and item for item in resolved_default
+        ):
+            raise OracleRunError(
+                "ORACLE_RUNTIME_COMMAND_INVALID",
+                "Oracle runtime resolver returned an invalid command",
+            )
+        config = replace(config, oracle_command=tuple(resolved_default))
     validate_oracle_attachment_sizes(config)
     layout = STATE.create_layout(config, run_id=config.requested_run_id)
     transport_mission_path = layout.run_dir / "mission.md"
@@ -2017,6 +2063,7 @@ def execute_run(
         return {"ok": False, "run_dir": str(layout.run_dir), "result": STATE.update_state(layout.state_path, status="failed")}
     STATE.write_transcript(layout)
     STATE.capture_browser_identity_receipt(layout.state_path)
+    STATE.capture_picker_profile_receipt(layout.state_path)
     # Exact recovery is allowed to finish under its own run-scoped mutex while
     # this original observer still owns the submission mutex.  If recovery won
     # that race, the stale observer must not overwrite durable terminal state
@@ -3633,7 +3680,7 @@ def _require_followup_parent(parent_run_dir: Path) -> tuple[dict[str, Any], dict
     if (
         str(state.get("transport") or "") != "pro-devspace-readonly"
         or str(profile.get("model") or "").casefold() != "gpt-5.6-sol"
-        or str(profile.get("model_strategy") or "") != "select"
+        or not STATE.is_compatible_pro_model_strategy(profile.get("model_strategy"))
         or not STATE.is_compatible_pro_thinking_time(profile.get("thinking_time"))
     ):
         raise OracleRunError(
@@ -3642,10 +3689,15 @@ def _require_followup_parent(parent_run_dir: Path) -> tuple[dict[str, Any], dict
         )
     ownership = STATE.proven_ownership_receipt(state_path)
     browser = STATE.proven_browser_identity_receipt(state_path)
-    if ownership is None or browser is None:
+    picker = STATE.proven_picker_profile_receipt(state_path)
+    if (
+        ownership is None
+        or browser is None
+        or (profile.get("model_strategy") == "current" and picker is None)
+    ):
         raise OracleRunError(
             "FOLLOWUP_PARENT_IDENTITY_INVALID",
-            "follow-up requires valid immutable ownership and browser identity receipts",
+            "follow-up requires valid immutable ownership, browser identity, and current-picker receipts",
         )
     oracle = state.get("oracle") if isinstance(state.get("oracle"), dict) else {}
     conversation_url = str(oracle.get("conversation_url") or "").strip()
@@ -3702,10 +3754,13 @@ def _followup_manifest_payload(
         "submit_mutex_timeout_seconds": 30,
         "episode_policy": policy,
         "model": "gpt-5.6-sol",
-        "model_strategy": "select",
+        # Follow-ups are new submissions. A selector-era parent remains valid
+        # recovery evidence, but its child explicitly selects Latest.
+        "model_strategy": "current",
         # A child is a new Pro submission even when its sealed parent used
         # Oracle's historical Heavy spelling.
         "thinking_time": STATE.PRO_THINKING_TIME,
+        "browser_intent": STATE.current_browser_intent(STATE.PRO_THINKING_TIME),
         "research": str(profile.get("research") or "off"),
         "archive": "always" if archive_contract.get("was_archived") is True else "never",
         "task_outcome_contract": "v1",

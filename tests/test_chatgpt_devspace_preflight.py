@@ -62,6 +62,8 @@ def test_recent_registered_app_read_gate_is_read_only_and_root_scoped(tmp_path: 
         "run_id": "regular-canary-1",
         "conversation_url": "https://chatgpt.com/c/canary",
         "tool_read_receipts": [{}, {}, {}],
+        "observed_profile": "Latest / 6 Pro",
+        "picker_profile_verified": True,
     }
     fake = FakeOnboarding(codex_home=codex_home, state=state, gate=gate)
 
@@ -112,6 +114,8 @@ def test_pro_gate_fails_closed_for_wrong_app_root_or_stale_receipt(
         "run_id": "regular-canary-1",
         "conversation_url": "https://chatgpt.com/c/canary",
         "tool_read_receipts": [{}, {}, {}],
+        "observed_profile": "Latest / 6 Pro",
+        "picker_profile_verified": True,
     }
     fake = FakeOnboarding(codex_home=codex_home, state=state, gate=gate)
 
@@ -145,6 +149,8 @@ def test_pro_gate_rejects_receipt_for_different_allowed_root(tmp_path: Path) -> 
         "run_id": "regular-canary-other-root",
         "conversation_url": "https://chatgpt.com/c/canary",
         "tool_read_receipts": [{}, {}, {}],
+        "observed_profile": "Latest / 6 Pro",
+        "picker_profile_verified": True,
     }
     fake = FakeOnboarding(codex_home=codex_home, state=state, gate=gate)
 

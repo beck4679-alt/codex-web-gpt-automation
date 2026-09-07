@@ -24,6 +24,7 @@ from typing import Any, Mapping, Sequence
 
 from chatgpt_chrome_local_network import browser_profile_loopback_allowed, policy_status
 import codex_local_multi_gpt_setup as LOCAL_MULTI_GPT_SETUP
+import codex_web_gpt_onboarding_ui as UI
 
 
 PRODUCT_NAME = "Codex Web GPT Automation"
@@ -63,6 +64,14 @@ USER_CONFIRMATION_STAGES = (
 )
 FINAL_GATE_TRANSPORTS = ("regular-non-pro-oracle",)
 FINAL_GATE_MIN_EVIDENCE = 16
+FINAL_GATE_PROFILE_PROOF_RE = re.compile(
+    r"(?m)^\[browser\] Thinking time: Latest / 6 Pro "
+    r"\(Latest explicitly selected\)(?: \(already selected\))?\r?$"
+)
+BOOTSTRAP_RECOVERY_SCHEMA = "codex.devspace.bootstrap-recovery/v1"
+BOOTSTRAP_RECOVERY_RELATIVE = Path("state") / "devspace-service" / "bootstrap-recovery.json"
+BOOTSTRAP_RECOVERY_MAX_AGE = dt.timedelta(minutes=5)
+BOOTSTRAP_RECOVERY_CLOCK_SKEW = dt.timedelta(minutes=1)
 FINAL_GATE_RECEIPT_SCHEMA = "codex.devspace.tool-read-receipt/v1"
 FINAL_GATE_RECEIPT_KEYS = frozenset(
     {
@@ -184,10 +193,17 @@ def public_origin(registration_url: str) -> str:
 
 
 def _quoted_command(argv: Sequence[str]) -> str:
-    def quote(value: str) -> str:
-        return f'"{value}"' if any(ch.isspace() for ch in value) else value
+    """Render one copy/paste-safe PowerShell command for Windows PS 5 and 7."""
 
-    return " ".join(quote(value) for value in argv)
+    def quote(value: str) -> str:
+        if re.fullmatch(r"[A-Za-z0-9_./:\\-]+", value):
+            return value
+        return "'" + value.replace("'", "''") + "'"
+
+    rendered = [quote(str(value)) for value in argv]
+    if rendered and rendered[0].startswith("'"):
+        rendered[0] = "& " + rendered[0]
+    return " ".join(rendered)
 
 
 def onboarding_plan(
@@ -415,6 +431,11 @@ def readiness_status(
     bootstrapped = _root_identities(bootstrap.get("roots") or [])
     exact_roots_configured = desired == configured
     bootstrap_matches = configured == bootstrapped
+    bootstrap_recovery_verified = stateful_bootstrap_recovery_verified(
+        codex_home=codex_home,
+        devspace_home=devspace_home,
+        registration_url=plan["registration_url"],
+    ) if provider == "tailscale" else True
     local = http_probe(f"http://127.0.0.1:{DEFAULT_LOCAL_PORT}/mcp")
     public = http_probe(plan["registration_url"])
     browser_profile = (oracle_profile_dir or (Path.home() / ".oracle" / "browser-profile")).resolve()
@@ -426,6 +447,7 @@ def readiness_status(
     checks = {
         "exact_roots_configured": exact_roots_configured,
         "bootstrap_matches_config": bootstrap_matches,
+        "bootstrap_recovery_verified": bootstrap_recovery_verified,
         "app_name_matches_expected": workspace.get("app_name") == plan["app_name"],
         "local_mcp_oauth_challenge": bool(local.get("ok")),
         "public_mcp_oauth_challenge": bool(public.get("ok")),
@@ -710,6 +732,43 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def stateful_bootstrap_recovery_verified(
+    *,
+    codex_home: Path,
+    devspace_home: Path,
+    registration_url: str,
+) -> bool:
+    """Verify the watchdog's recent recovery receipt against live config text."""
+    receipt = _load_json(codex_home / BOOTSTRAP_RECOVERY_RELATIVE)
+    if not receipt or receipt.get("schema") != BOOTSTRAP_RECOVERY_SCHEMA or receipt.get("healthy") is not True:
+        return False
+    config_path = devspace_home / "config.json"
+    try:
+        config_text = config_path.read_bytes().decode("utf-8-sig")
+    except (OSError, UnicodeError):
+        return False
+    expected_hash = hashlib.sha256(config_text.encode("utf-8")).hexdigest()
+    if str(receipt.get("config_sha256") or "").casefold() != expected_hash:
+        return False
+    expected_hostname = (urllib.parse.urlsplit(registration_url).hostname or "").casefold().rstrip(".")
+    observed_hostname = str(receipt.get("hostname") or "").strip().casefold().rstrip(".")
+    if not expected_hostname or observed_hostname != expected_hostname:
+        return False
+    watchdog_pid = receipt.get("watchdog_pid")
+    if isinstance(watchdog_pid, bool) or not isinstance(watchdog_pid, int) or watchdog_pid <= 0:
+        return False
+    if not isinstance(receipt.get("reason"), str) or not receipt["reason"].strip():
+        return False
+    try:
+        observed_at = dt.datetime.fromisoformat(str(receipt.get("observed_at") or "").replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if observed_at.tzinfo is None:
+        return False
+    age = dt.datetime.now(dt.timezone.utc) - observed_at.astimezone(dt.timezone.utc)
+    return -BOOTSTRAP_RECOVERY_CLOCK_SKEW <= age <= BOOTSTRAP_RECOVERY_MAX_AGE
+
+
 def _inside(parent: Path, child: Path) -> bool:
     try:
         child.relative_to(parent)
@@ -939,8 +998,11 @@ def _oracle_final_gate_binding(
     terminal = (
         run_state.get("transport") == "devspace"
         and run_state.get("app_name") == expected_app_name
-        and profile.get("model") == "gpt-5.6"
-        and profile.get("thinking_time") == "extra-high"
+        # Oracle 0.18.0 still needs a known CLI model slug, but the browser
+        # strategy bypasses version selection; the patch explicitly clicks Latest.
+        and profile.get("model") == "gpt-5.6-sol"
+        and profile.get("model_strategy") == "current"
+        and profile.get("thinking_time") == "pro"
         and run_state.get("status") == "complete"
         and run_state.get("transport_status") == "complete"
         and run_state.get("session_authority") == "terminal"
@@ -948,7 +1010,7 @@ def _oracle_final_gate_binding(
         and run_state.get("task_outcome") == "executed"
     )
     if not terminal:
-        raise OnboardingError("FINAL_GATE_REGULAR_NON_PRO_ORACLE_NOT_TERMINAL_EXECUTED")
+        raise OnboardingError("FINAL_GATE_CURRENT_LATEST_PRO_ORACLE_NOT_TERMINAL_EXECUTED")
     registered_app_final_gate = run_state.get("registered_app_final_gate") is True
     ownership = run_state.get("ownership") if isinstance(run_state.get("ownership"), dict) else {}
     source_thread_id = str(ownership.get("source_thread_id") or "").strip()
@@ -961,6 +1023,83 @@ def _oracle_final_gate_binding(
         if source_thread_id.casefold() != evaluated_from_thread.casefold():
             raise OnboardingError("FINAL_GATE_FOREIGN_TASK_RUN")
     artifacts = run_state.get("artifacts") if isinstance(run_state.get("artifacts"), dict) else {}
+    try:
+        stdout_candidate = Path(str(artifacts.get("stdout") or "")).expanduser()
+        if stdout_candidate.is_symlink():
+            raise OSError("stdout proof must not be a symlink")
+        stdout_path = stdout_candidate.resolve(strict=True)
+        stdout_bytes = stdout_path.read_bytes()
+        stdout_text = stdout_bytes.decode("utf-8", errors="strict")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise OnboardingError("FINAL_GATE_ORACLE_PROFILE_PROOF_MISSING") from exc
+    if (
+        not stdout_path.is_file()
+        or not _inside(directory, stdout_path)
+        or stdout_path.is_symlink()
+        or FINAL_GATE_PROFILE_PROOF_RE.search(stdout_text) is None
+    ):
+        raise OnboardingError("FINAL_GATE_ORACLE_PROFILE_PROOF_MISSING")
+    picker_reference = (
+        run_state.get("picker_profile")
+        if isinstance(run_state.get("picker_profile"), dict)
+        else {}
+    )
+    expected_picker_request = {
+        "schema": "codex.chatgpt.oracle-browser-intent/v1",
+        "model_row": "Latest",
+        "model_selection": "explicit",
+        "thinking_time": "pro",
+        "slider_ordinal": 5,
+        "slider_total": 5,
+        "displayed_effort": "6 Pro",
+        "verification": "observed-log-required",
+    }
+    picker_path = directory / "picker-profile-receipt.json"
+    try:
+        if picker_path.is_symlink():
+            raise OSError("picker proof must not be a symlink")
+        picker_bytes = picker_path.read_bytes()
+        picker_receipt = json.loads(picker_bytes.decode("utf-8", errors="strict"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise OnboardingError("FINAL_GATE_ORACLE_PICKER_RECEIPT_INVALID") from exc
+    picker_observed = (
+        picker_receipt.get("observed")
+        if isinstance(picker_receipt, dict) and isinstance(picker_receipt.get("observed"), dict)
+        else {}
+    )
+    ownership = run_state.get("ownership") if isinstance(run_state.get("ownership"), dict) else {}
+    allowed_profile_logs = {
+        "[browser] Thinking time: Latest / 6 Pro (Latest explicitly selected)",
+        "[browser] Thinking time: Latest / 6 Pro (Latest explicitly selected) (already selected)",
+    }
+    if (
+        picker_reference.get("schema") != "codex.chatgpt.oracle-picker-profile-reference/v1"
+        or picker_reference.get("requested") != expected_picker_request
+        or picker_reference.get("verified") is not True
+        or picker_reference.get("receipt_path") != str(picker_path)
+        or picker_reference.get("receipt_sha256") != hashlib.sha256(picker_bytes).hexdigest()
+        or not isinstance(picker_receipt, dict)
+        or picker_receipt.get("schema") != "codex.chatgpt.oracle-picker-profile-receipt/v1"
+        or picker_receipt.get("verified") is not True
+        or picker_receipt.get("source_thread_id") != source_thread_id
+        or picker_receipt.get("project_root_sha256") != ownership.get("project_root_sha256")
+        or picker_receipt.get("run_id") != run_state.get("run_id")
+        or picker_receipt.get("mission_sha256") != (run_state.get("mission") or {}).get("sha256")
+        or picker_receipt.get("slug") != (run_state.get("oracle") or {}).get("slug")
+        or picker_receipt.get("requested") != expected_picker_request
+        or picker_receipt.get("stdout_path") != str(stdout_path)
+        or picker_receipt.get("stdout_sha256") != hashlib.sha256(stdout_bytes).hexdigest()
+        or picker_observed.get("model_row") != "Latest"
+        or picker_observed.get("model_row_checked") is not True
+        or picker_observed.get("thinking_time") != "pro"
+        or picker_observed.get("slider_ordinal") != 5
+        or picker_observed.get("slider_total") != 5
+        or picker_observed.get("displayed_effort") != "6 Pro"
+        or picker_observed.get("effort_checked") is not True
+        or picker_observed.get("log_line") not in allowed_profile_logs
+        or picker_observed.get("log_line") not in stdout_text.splitlines()
+    ):
+        raise OnboardingError("FINAL_GATE_ORACLE_PICKER_RECEIPT_INVALID")
     try:
         output_path = Path(str(artifacts.get("output") or "")).expanduser().resolve(strict=True)
     except OSError as exc:
@@ -1026,6 +1165,12 @@ def _oracle_final_gate_binding(
         "state_sha256": _sha256_file(state_path),
         "output_path": str(output_path),
         "output_sha256": output_sha256,
+        "stdout_path": str(stdout_path),
+        "stdout_sha256": hashlib.sha256(stdout_bytes).hexdigest(),
+        "observed_profile": "Latest / 6 Pro",
+        "picker_profile_verified": True,
+        "picker_profile_receipt_path": str(picker_path),
+        "picker_profile_receipt_sha256": hashlib.sha256(picker_bytes).hexdigest(),
         "workspace_id": receipt_binding["workspace_id"],
         "conversation_scope_id": receipt_binding["conversation_scope_id"],
         "tool_read_receipts": receipt_binding["tool_read_receipts"],
@@ -1117,8 +1262,11 @@ def evaluate_stages(
     checks["restart_persistence_verified"] = bool(
         checks.get("bootstrap_matches_config")
         and (
-            state.get("provider") == "tailscale"
-            or _stage_user_confirmed(state, "04_reboot_service")
+            (
+                state.get("provider") == "tailscale"
+                and checks.get("bootstrap_recovery_verified")
+            )
+            or (state.get("provider") != "tailscale" and _stage_user_confirmed(state, "04_reboot_service"))
         )
     )
     checks["oracle_login_confirmed"] = bool(
@@ -1639,58 +1787,8 @@ def consent_stage(
 
 
 def render_step(step: dict[str, Any]) -> str:
-    """Render one wizard step as a short readable block."""
-    language = step.get("language") if step.get("language") in LANGUAGES else DEFAULT_LANGUAGE
-    words = {
-        "ko": {
-            "user": "사용자 작업 필요",
-            "auto": "자동 진행",
-            "state": "현재 상태",
-            "none_left": "남은 단계가 없습니다.",
-            "triage": "생성 버튼이 없으면 아래 순서로 확인합니다.",
-            "after": "완료 후",
-            "then": "이어서",
-            "remaining": "남은 단계",
-        },
-        "en": {
-            "user": "user action required",
-            "auto": "automatic",
-            "state": "Current state",
-            "none_left": "No stages remain.",
-            "triage": "If the create button is missing, check in this order.",
-            "after": "After finishing",
-            "then": "Next",
-            "remaining": "Remaining",
-        },
-    }[language]
-    total = len(STAGE_IDS)
-    lines: list[str] = []
-    if step.get("done"):
-        lines.append(f"[{total}/{total}] {step['completion_label']}")
-        lines.append(words["none_left"])
-        return "\n".join(lines)
-    current = step["current_stage"]
-    index = STAGE_IDS.index(current) + 1
-    owner = words["user"] if step["needs_user_action"] else words["auto"]
-    lines.append(f"[{index}/{total}] {current}  ({owner})")
-    lines.append(f"{words['state']}: {step['completion_label']}")
-    lines.append("")
-    for instruction in step.get("instructions") or []:
-        lines.append(f"  {instruction}")
-    if step.get("missing_create_button_triage"):
-        lines.append("")
-        lines.append(f"  {words['triage']}")
-        for item in step["missing_create_button_triage"]:
-            lines.append(f"    - {item}")
-    lines.append("")
-    if step.get("confirm_command"):
-        lines.append(f"{words['after']}: python {step['confirm_command']}")
-    else:
-        lines.append(f"{words['then']}: python onboard.py next")
-    remaining = [stage for stage in step.get("pending_stages") or [] if stage != current]
-    if remaining:
-        lines.append(f"{words['remaining']}: {', '.join(remaining)}")
-    return "\n".join(lines)
+    """Render one wizard step through the presentation module."""
+    return UI.render_step(step, STAGE_IDS)
 
 
 def record_final_gate(
@@ -1789,9 +1887,22 @@ def prepare_final_gate(
         "app_name": state["app_name"],
         "mode": "browser",
         "transport": "devspace",
-        "model": "gpt-5.6",
-        "model_strategy": "select",
-        "thinking_time": "extra-high",
+        # Keep the known Oracle 0.18.0 compatibility slug while the patched
+        # effort gate explicitly selects Latest and proves latest +
+        # visible 6 Pro before Oracle can submit.
+        "model": "gpt-5.6-sol",
+        "model_strategy": "current",
+        "thinking_time": "pro",
+        "browser_intent": {
+            "schema": "codex.chatgpt.oracle-browser-intent/v1",
+            "model_row": "Latest",
+            "model_selection": "explicit",
+            "thinking_time": "pro",
+            "slider_ordinal": 5,
+            "slider_total": 5,
+            "displayed_effort": "6 Pro",
+            "verification": "observed-log-required",
+        },
         "research": "off",
         "task_outcome_contract": "v1",
         "archive": "never",
@@ -1891,6 +2002,7 @@ def _global_language_flag(arguments: Sequence[str]) -> str | None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    UI.configure_output()
     arguments = list(sys.argv[1:] if argv is None else argv)
     args = _parser().parse_args(arguments)
     if getattr(args, "lang", None) is None:
@@ -1914,48 +2026,59 @@ def main(argv: list[str] | None = None) -> int:
                 app_name=args.app_name,
             )
         elif args.command == "start":
+            resume_existing = False
             if not args.reset:
                 try:
                     load_state()
                 except OnboardingError:
                     if state_path().exists():
+                        if args.json:
+                            print(
+                                json.dumps(
+                                    {
+                                        "ok": False,
+                                        "error": "ONBOARDING_STATE_CORRUPT",
+                                        "hint": "python onboard.py start --reset",
+                                    },
+                                    ensure_ascii=False,
+                                )
+                            )
+                        else:
+                            print(UI.render_error("ONBOARDING_STATE_CORRUPT", args.lang))
+                        return 2
+                else:
+                    if args.json:
                         print(
                             json.dumps(
                                 {
                                     "ok": False,
-                                    "error": "ONBOARDING_STATE_CORRUPT",
-                                    "hint": "python onboard.py start --reset",
+                                    "error": "ONBOARDING_ALREADY_STARTED",
+                                    "hint": "python onboard.py resume",
                                 },
                                 ensure_ascii=False,
                             )
                         )
                         return 2
-                else:
-                    print(
-                        json.dumps(
-                            {
-                                "ok": False,
-                                "error": "ONBOARDING_ALREADY_STARTED",
-                                "hint": "python onboard.py resume",
-                            },
-                            ensure_ascii=False,
-                        )
-                    )
-                    return 2
-            start_onboarding(
-                provider=args.provider,
-                registration_url=args.public_url,
-                roots=args.roots,
-                app_name=args.app_name,
-                enable_local_multi_gpt=args.enable_local_multi_gpt,
-            )
+                    resume_existing = True
+            if not resume_existing:
+                start_onboarding(
+                    provider=args.provider,
+                    registration_url=args.public_url,
+                    roots=args.roots,
+                    app_name=args.app_name,
+                    enable_local_multi_gpt=args.enable_local_multi_gpt,
+                )
             result = next_step(language=args.lang)
         elif args.command in ("next", "resume"):
             result = next_step(language=args.lang)
         elif args.command == "confirm":
             result = confirm_stage(args.stage, language=args.lang)
+            if not args.json:
+                result = next_step(language=args.lang)
         elif args.command == "consent":
             result = consent_stage(args.stage)
+            if not args.json:
+                result = next_step(language=args.lang)
         elif args.command == "record-final-gate":
             result = record_final_gate(
                 read_ok=not args.failed,
@@ -1975,9 +2098,12 @@ def main(argv: list[str] | None = None) -> int:
             path = configure_app_name(codex_home=args.codex_home, app_name=args.app_name)
             result = {"ok": True, "app_name": normalize_app_name(args.app_name), "path": str(path)}
     except OnboardingError as exc:
-        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
+        if args.json:
+            print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
+        else:
+            print(UI.render_error(str(exc), args.lang))
         return 2
-    if args.command in ("start", "next", "resume") and not args.json:
+    if args.command in ("start", "next", "resume", "confirm", "consent") and not args.json:
         print(render_step(result))
     else:
         print(json.dumps(result, ensure_ascii=False, indent=2))

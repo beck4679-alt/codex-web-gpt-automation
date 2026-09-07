@@ -59,9 +59,10 @@ def compile_manifest(
             "oracle-pro-devspace-readonly": "pro-devspace-readonly",
             "oracle-devspace": "devspace",
         }[contract["route"]],
-        "model": contract.get("model") or "gpt-5.6",
-        "model_strategy": "select",
+        "model": contract["model"],
+        "model_strategy": contract["model_strategy"],
         "thinking_time": contract["thinking_time"],
+        "browser_intent": contract["browser_intent"],
         "research": "deep" if contract["research"] else "off",
         "archive": "auto",
     }

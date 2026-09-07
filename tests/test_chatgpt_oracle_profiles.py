@@ -33,11 +33,16 @@ def test_regular_modes_use_plain_devspace_handoff_and_high_only(tmp_path: Path, 
     mission = (tmp_path / "mission.md").resolve()
     contract = profiles.build_launch_contract(mode, mission_path=mission)
     assert contract["route"] == "oracle-devspace"
+    assert contract["model"] == "gpt-5.6-sol"
+    assert contract["model_strategy"] == "current"
     assert contract["reasoning_level"] == "Very High"
     assert contract["attachments"] == []
     assert contract["app_picker"] is False
     assert contract["app_settings_automation"] is False
     assert contract["pro_selection_policy"] == "explicit-only"
+    assert contract["browser_intent"]["model_row"] == "Latest"
+    assert contract["browser_intent"]["thinking_time"] == "extra-high"
+    assert contract["browser_intent"]["slider_ordinal"] == 4
     assert contract["composer_prompt"].startswith(
         f"@DevSpace Read and execute the mission file: {mission}."
     )
@@ -78,8 +83,20 @@ def test_pro_attachment_is_oracle_attachment_only_and_manual_launches_nothing(tm
     assert pro["oracle_launch"] is True
     assert pro["devspace_required"] is False
     assert pro["model"] == "gpt-5.6-sol"
+    assert pro["model_strategy"] == "current"
     assert pro["task_kind"] == "pro"
     assert pro["thinking_time"] == "pro"
+    assert pro["pro_selection_policy"] == "standing-policy-approved"
+    assert pro["browser_intent"] == {
+        "schema": "codex.chatgpt.oracle-browser-intent/v1",
+        "model_row": "Latest",
+        "model_selection": "explicit",
+        "thinking_time": "pro",
+        "slider_ordinal": 5,
+        "slider_total": 5,
+        "displayed_effort": "6 Pro",
+        "verification": "observed-log-required",
+    }
     assert pro["attachment_policy"] == "always"
     assert pro["attachments"] == [str(mission), str(packet)]
     assert pro["composer_prompt"].startswith(
@@ -137,8 +154,11 @@ def test_pro_is_explicit_readonly_devspace_without_attachments(tmp_path: Path) -
     assert contract["route"] == "oracle-pro-devspace-readonly"
     assert contract["app_name"] == "DevSpace"
     assert contract["model"] == "gpt-5.6-sol"
-    assert contract["model_strategy"] == "select"
+    assert contract["model_strategy"] == "current"
     assert contract["thinking_time"] == "pro"
+    assert contract["pro_selection_policy"] == "standing-policy-approved"
+    assert contract["browser_intent"]["model_row"] == "Latest"
+    assert contract["browser_intent"]["displayed_effort"] == "6 Pro"
     assert profiles.PRO_THINKING_TIME == "pro"
     assert contract["research"] is False
     assert contract["attachments"] == []

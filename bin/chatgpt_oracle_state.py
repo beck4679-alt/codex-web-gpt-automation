@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import ctypes
 import hashlib
+import importlib.util
 import json
 import os
 import re
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -372,6 +374,19 @@ ORACLE_THINKING_TIME_PRE_SUBMIT_RE = re.compile(
     r"); refusing to submit without confirmed (?P<required>[^.]+)\.",
     re.IGNORECASE,
 )
+ORACLE_CURRENT_EXPLICIT_THINKING_TIMES = frozenset(
+    ("light", "standard", "extended", "extra-high", "pro")
+)
+PICKER_PROFILE_RECEIPT_SCHEMA = "codex.chatgpt.oracle-picker-profile-receipt/v1"
+PICKER_PROFILE_REFERENCE_SCHEMA = "codex.chatgpt.oracle-picker-profile-reference/v1"
+CURRENT_BROWSER_INTENT_SCHEMA = "codex.chatgpt.oracle-browser-intent/v1"
+CURRENT_EFFORT_UI = {
+    "light": (1, "light / 1 of 5"),
+    "standard": (2, "standard / 2 of 5"),
+    "extended": (3, "extended / 3 of 5"),
+    "extra-high": (4, "extra-high / 4 of 5"),
+    "pro": (5, "6 Pro"),
+}
 # Upstream Oracle copies a signed-in browser profile with rsync.  On POSIX
 # hosts without rsync the copy fails after launch, so feasibility is decided
 # while loading the manifest instead of crashing mid-launch.  The pinned
@@ -401,6 +416,30 @@ def is_pro_transport(transport: str) -> bool:
 def is_compatible_pro_thinking_time(value: object) -> bool:
     """Accept only the current Pro tier plus persisted Heavy receipts."""
     return str(value or "").strip().casefold() in COMPATIBLE_PRO_THINKING_TIMES
+
+
+def is_compatible_pro_model_strategy(value: object) -> bool:
+    """Accept explicit Latest for new runs and persisted selector-era state."""
+    return str(value or "").strip().casefold() in {"current", "select"}
+
+
+def current_browser_intent(thinking_time: object) -> dict[str, Any] | None:
+    """Describe the exact Latest-row picker outcome required for a new run."""
+    effort = str(thinking_time or "").strip().casefold()
+    ui = CURRENT_EFFORT_UI.get(effort)
+    if ui is None:
+        return None
+    slider_ordinal, displayed_effort = ui
+    return {
+        "schema": CURRENT_BROWSER_INTENT_SCHEMA,
+        "model_row": "Latest",
+        "model_selection": "explicit",
+        "thinking_time": effort,
+        "slider_ordinal": slider_ordinal,
+        "slider_total": 5,
+        "displayed_effort": displayed_effort,
+        "verification": "observed-log-required",
+    }
 
 
 def is_devspace_transport(transport: str) -> bool:
@@ -484,6 +523,7 @@ class OracleConfig:
     web_multi_child_provenance_sha256: str | None
     source_thread_id: str | None
     registered_app_final_gate: bool
+    oracle_command_defaulted: bool
 
 
 @dataclass(frozen=True)
@@ -550,8 +590,38 @@ def oracle_state_root() -> Path:
 
 
 def default_oracle_command(platform_name: str | None = None) -> tuple[str, ...]:
+    """Return the deterministic parse/dry-run placeholder for the pinned CLI."""
     platform = os.name if platform_name is None else platform_name
-    return ("npx.cmd" if platform == "nt" else "npx", "-y", f"@steipete/oracle@{ORACLE_CURRENT_VERSION}")
+    return (
+        "npx.cmd" if platform == "nt" else "npx",
+        "-y",
+        f"@steipete/oracle@{ORACLE_CURRENT_VERSION}",
+    )
+
+
+def _validated_persisted_node_oracle_command(command: tuple[str, ...]) -> bool:
+    """Validate the recorded argv in place; never rediscover a newer default."""
+    if len(command) != 2:
+        return False
+    runtime_path = Path(__file__).resolve().with_name("chatgpt_oracle_runtime.py")
+    spec = importlib.util.spec_from_file_location("chatgpt_oracle_runtime_for_state", runtime_path)
+    if spec is None or spec.loader is None:
+        return False
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+        node = Path(command[0]).expanduser().resolve(strict=True)
+        entry = Path(command[1]).expanduser().resolve(strict=True)
+        if module._validated_oracle_entry(entry.parents[2]) != entry:
+            return False
+        return module._suitable_node(
+            [node],
+            run_factory=subprocess.run,
+            platform_name=os.name,
+        ) == node
+    except Exception:
+        return False
 
 
 def validate_oracle_command(values: Any) -> tuple[str, ...]:
@@ -561,6 +631,8 @@ def validate_oracle_command(values: Any) -> tuple[str, ...]:
     executable = Path(command[0]).name.casefold()
     if executable in {"oracle", "oracle.cmd", "oracle.exe"} and len(command) == 1:
         return command
+    if executable in {"node", "node.exe"} and _validated_persisted_node_oracle_command(command):
+        return command
     if executable in {"npx", "npx.cmd", "npx.exe"} and command[1:]:
         package = command[-1]
         version = package.rsplit("@", 1)[-1] if package.startswith("@steipete/oracle@") else ""
@@ -568,7 +640,7 @@ def validate_oracle_command(values: Any) -> tuple[str, ...]:
             return command
     raise OracleStateError(
         "ORACLE_COMMAND_FORBIDDEN",
-        f"oracle_command must resolve directly to Oracle or pinned current/LKG Oracle {sorted(ORACLE_COMPATIBLE_VERSIONS)}",
+        f"oracle_command must resolve directly to Oracle, an independently validated persisted Node entry, or pinned current/LKG Oracle {sorted(ORACLE_COMPATIBLE_VERSIONS)}",
         {"command": command_for_display(command)},
     )
 
@@ -690,6 +762,7 @@ def load_manifest(
     if not is_within(state_root, run_root):
         raise OracleStateError("RUN_ROOT_OUTSIDE_HOST_STATE", "run_root must stay inside the host-only Oracle state root")
     command_value = payload.get("oracle_command")
+    oracle_command_defaulted = command_value is None
     if command_value is None:
         oracle_command = default_oracle_command(platform_name)
     else:
@@ -731,22 +804,39 @@ def load_manifest(
         )
     if not 1 <= policy["max_total_concurrency"] <= 5:
         raise OracleStateError("EPISODE_POLICY_INVALID", "max_total_concurrency must be within 1..5")
-    model = str(payload.get("model") or "gpt-5.6").strip()
+    model = str(payload.get("model") or "gpt-5.6-sol").strip()
     if not model or MODEL_RE.fullmatch(model) is None:
         raise OracleStateError("MODEL_INVALID", "model must be one safe Oracle browser model label")
-    model_strategy = str(payload.get("model_strategy") or "select").strip().casefold()
+    model_strategy = str(payload.get("model_strategy") or "current").strip().casefold()
     if model_strategy not in {"select", "current", "ignore"}:
         raise OracleStateError("MODEL_STRATEGY_INVALID", "model_strategy must be select, current, or ignore")
-    # A missing effort on a new Pro manifest is normalized to the visible Pro
-    # tier.  Keep the historical regular default intact for legacy regular
-    # manifests that omitted this optional field.
+    # New manifests default to explicit Latest with a visible effort. Explicit
+    # selector-era profile fields remain lossless for persisted recovery.
     thinking_time = str(
-        payload.get("thinking_time") or (PRO_THINKING_TIME if is_pro_transport(transport) else "heavy")
+        payload.get("thinking_time") or (PRO_THINKING_TIME if is_pro_transport(transport) else "extra-high")
     ).strip().casefold()
     if thinking_time not in {"light", "standard", "extended", "extra-high", *COMPATIBLE_PRO_THINKING_TIMES}:
         raise OracleStateError(
             "THINKING_TIME_INVALID",
             "thinking_time must be light, standard, extended, extra-high, pro, or legacy heavy",
+        )
+    browser_intent_raw = payload.get("browser_intent")
+    expected_browser_intent = current_browser_intent(thinking_time) if model_strategy == "current" else None
+    if browser_intent_raw is not None and browser_intent_raw != expected_browser_intent:
+        raise OracleStateError(
+            "BROWSER_INTENT_INVALID",
+            "browser_intent must exactly express the requested explicit Latest picker outcome",
+            {"expected": expected_browser_intent},
+        )
+    if (
+        model_strategy == "current"
+        and registered_app_final_gate
+        and browser_intent_raw != expected_browser_intent
+    ):
+        raise OracleStateError(
+            "BROWSER_INTENT_REQUIRED",
+            "registered-app final-gate manifests must explicitly require Latest picker proof",
+            {"expected": expected_browser_intent},
         )
     if is_pro_transport(transport):
         if model.casefold() != "gpt-5.6-sol":
@@ -755,8 +845,11 @@ def load_manifest(
                 "Pro attachment-only runs require GPT-5.6 Sol with an explicitly verified Pro effort; no downgrade is allowed",
                 {"model": model},
             )
-        if model_strategy != "select":
-            raise OracleStateError("PRO_MODEL_STRATEGY_INVALID", "Pro requires explicit model selection")
+        if not is_compatible_pro_model_strategy(model_strategy):
+            raise OracleStateError(
+                "PRO_MODEL_STRATEGY_INVALID",
+                "Pro requires explicit Latest selection; selector-era manifests remain recovery-compatible",
+            )
         # Parsing remains lossless for already-persisted Heavy-era manifests.
         # The runner's pre-layout launch gate rejects this legacy spelling for
         # every new current Pro execution before it can create a run or submit.
@@ -834,11 +927,19 @@ def load_manifest(
     if requested_run_id is not None and RUN_ID_RE.fullmatch(requested_run_id) is None:
         raise OracleStateError("RUN_ID_INVALID", "run_id must be a safe 8-96 character identifier")
     if registered_app_final_gate:
-        if model.casefold() != "gpt-5.6" or thinking_time != "extra-high":
+        if (
+            model.casefold() != "gpt-5.6-sol"
+            or model_strategy != "current"
+            or thinking_time != PRO_THINKING_TIME
+        ):
             raise OracleStateError(
                 "REGISTERED_APP_FINAL_GATE_PROFILE_INVALID",
-                "registered_app_final_gate requires regular GPT-5.6 with extra-high reasoning",
-                {"model": model, "thinking_time": thinking_time},
+                "registered_app_final_gate requires the known GPT-5.6 Sol CLI slug with explicit Latest/Pro browser selection",
+                {
+                    "model": model,
+                    "model_strategy": model_strategy,
+                    "thinking_time": thinking_time,
+                },
             )
         if task_outcome_contract != "v1":
             raise OracleStateError(
@@ -909,6 +1010,7 @@ def load_manifest(
         provenance_sha256,
         source_thread_id,
         registered_app_final_gate,
+        oracle_command_defaulted,
     )
 
 
@@ -1077,6 +1179,11 @@ def state_payload(
 ) -> dict[str, Any]:
     owner_thread_id = config.source_thread_id
     owner_kind = "bound" if owner_thread_id else "legacy-unbound"
+    requested_picker = (
+        current_browser_intent(config.thinking_time)
+        if config.model_strategy == "current" and config.model.casefold() == "gpt-5.6-sol"
+        else None
+    )
     return {
         "schema": STATE_SCHEMA, "run_id": layout.run_id, "project_root": str(config.project_root),
         "mode": config.mode, "transport": config.transport, "app_name": config.app_name,
@@ -1149,6 +1256,17 @@ def state_payload(
             "receipt_path": None,
             "receipt_sha256": None,
         },
+        "picker_profile": (
+            {
+                "schema": PICKER_PROFILE_REFERENCE_SCHEMA,
+                "requested": requested_picker,
+                "verified": False,
+                "receipt_path": None,
+                "receipt_sha256": None,
+            }
+            if requested_picker is not None
+            else None
+        ),
         "provider_session": {
             "schema": "codex.chatgpt.oracle-provider-session/v1",
             "status": "unobserved",
@@ -1193,6 +1311,10 @@ def ownership_receipt_path(run_dir: Path) -> Path:
 
 def browser_identity_receipt_path(run_dir: Path) -> Path:
     return run_dir / "browser-identity-receipt.json"
+
+
+def picker_profile_receipt_path(run_dir: Path) -> Path:
+    return run_dir / "picker-profile-receipt.json"
 
 
 def followup_binding_receipt_path(run_dir: Path) -> Path:
@@ -1304,6 +1426,7 @@ def _validate_followup_reservation_for_child(
         return None
     parent_owner = proven_ownership_receipt(parent_state_path)
     parent_browser = proven_browser_identity_receipt(parent_state_path)
+    parent_picker = proven_picker_profile_receipt(parent_state_path)
     parent_profile = parent_state.get("profile") if isinstance(parent_state.get("profile"), dict) else {}
     parent_artifacts = parent.get("artifacts") if isinstance(parent.get("artifacts"), dict) else {}
     if (
@@ -1317,10 +1440,11 @@ def _validate_followup_reservation_for_child(
         or parent_state.get("task_outcome") != "executed"
         or parent_state.get("transport") != "pro-devspace-readonly"
         or parent_profile.get("model") != "gpt-5.6-sol"
-        or parent_profile.get("model_strategy") != "select"
+        or not is_compatible_pro_model_strategy(parent_profile.get("model_strategy"))
         or not is_compatible_pro_thinking_time(parent_profile.get("thinking_time"))
         or parent_owner is None
         or parent_browser is None
+        or (parent_profile.get("model_strategy") == "current" and parent_picker is None)
         or parent.get("ownership_receipt_sha256") != parent_owner.get("sha256")
         or parent.get("browser_identity_receipt_sha256") != parent_browser.get("sha256")
         or str((parent_browser.get("payload") or {}).get("conversation_url") or "") != parent.get("conversation_url")
@@ -1770,6 +1894,139 @@ def capture_browser_identity_receipt(state_path: Path) -> dict[str, Any] | None:
     state["oracle"] = {**oracle, "conversation_url": url}
     write_json_atomic(state_path, state)
     return {"path": str(receipt_path), "sha256": digest, "payload": receipt}
+
+
+def _picker_profile_log_line(intent: dict[str, Any]) -> str:
+    return (
+        "[browser] Thinking time: Latest / "
+        f"{intent.get('displayed_effort')} (Latest explicitly selected)"
+    )
+
+
+def proven_picker_profile_receipt(state_path: Path) -> dict[str, Any] | None:
+    """Validate a run-local receipt bound to an observed exact picker log."""
+    state = load_state(state_path)
+    reference = state.get("picker_profile") if isinstance(state.get("picker_profile"), dict) else {}
+    requested = reference.get("requested") if isinstance(reference.get("requested"), dict) else None
+    profile = state.get("profile") if isinstance(state.get("profile"), dict) else {}
+    expected_requested = (
+        current_browser_intent(profile.get("thinking_time"))
+        if profile.get("model") == "gpt-5.6-sol" and profile.get("model_strategy") == "current"
+        else None
+    )
+    path = picker_profile_receipt_path(state_path.parent.resolve())
+    if (
+        reference.get("schema") != PICKER_PROFILE_REFERENCE_SCHEMA
+        or reference.get("verified") is not True
+        or requested != expected_requested
+        or path.is_symlink()
+    ):
+        return None
+    try:
+        exact_path = exact_regular_file(path, label="picker_profile_receipt")
+        raw = exact_path.read_bytes()
+        receipt = json.loads(raw.decode("utf-8", errors="strict"))
+        stdout_path = exact_regular_file(
+            (state.get("artifacts") or {}).get("stdout"), label="picker_profile_stdout"
+        )
+        stdout_raw = stdout_path.read_bytes()
+        stdout_text = stdout_raw.decode("utf-8", errors="strict")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, OracleStateError):
+        return None
+    actual = hashlib.sha256(raw).hexdigest()
+    expected_log = _picker_profile_log_line(requested)
+    allowed_logs = {expected_log, f"{expected_log} (already selected)"}
+    observed = receipt.get("observed") if isinstance(receipt.get("observed"), dict) else {}
+    ownership = state.get("ownership") if isinstance(state.get("ownership"), dict) else {}
+    if (
+        not isinstance(receipt, dict)
+        or receipt.get("schema") != PICKER_PROFILE_RECEIPT_SCHEMA
+        or receipt.get("verified") is not True
+        or reference.get("receipt_path") != str(path)
+        or reference.get("receipt_sha256") != actual
+        or receipt.get("run_id") != state.get("run_id")
+        or receipt.get("slug") != (state.get("oracle") or {}).get("slug")
+        or receipt.get("mission_sha256") != (state.get("mission") or {}).get("sha256")
+        or receipt.get("project_root_sha256") != ownership.get("project_root_sha256")
+        or receipt.get("source_thread_id") != source_thread_id_from_state(state)
+        or receipt.get("requested") != requested
+        or receipt.get("stdout_path") != str(stdout_path)
+        or receipt.get("stdout_sha256") != hashlib.sha256(stdout_raw).hexdigest()
+        or observed.get("log_line") not in allowed_logs
+        or observed.get("log_line") not in stdout_text.splitlines()
+        or observed.get("model_row") != "Latest"
+        or observed.get("model_row_checked") is not True
+        or observed.get("thinking_time") != requested.get("thinking_time")
+        or observed.get("slider_ordinal") != requested.get("slider_ordinal")
+        or observed.get("slider_total") != requested.get("slider_total")
+        or observed.get("displayed_effort") != requested.get("displayed_effort")
+        or observed.get("effort_checked") is not True
+    ):
+        return None
+    return {"path": str(path), "sha256": actual, "payload": receipt}
+
+
+def capture_picker_profile_receipt(state_path: Path) -> dict[str, Any] | None:
+    """Seal picker proof only after stdout reports the exact observed outcome."""
+    state = load_state(state_path)
+    reference = state.get("picker_profile") if isinstance(state.get("picker_profile"), dict) else {}
+    requested = reference.get("requested") if isinstance(reference.get("requested"), dict) else None
+    if reference.get("schema") != PICKER_PROFILE_REFERENCE_SCHEMA or requested is None:
+        return None
+    existing = proven_picker_profile_receipt(state_path)
+    if existing is not None:
+        return existing
+    path = picker_profile_receipt_path(state_path.parent.resolve())
+    if path.exists():
+        return None
+    try:
+        stdout_path = exact_regular_file(
+            (state.get("artifacts") or {}).get("stdout"), label="picker_profile_stdout"
+        )
+        if stdout_path.is_symlink() or not is_within(state_path.parent.resolve(), stdout_path):
+            return None
+        stdout_raw = stdout_path.read_bytes()
+        stdout_text = stdout_raw.decode("utf-8", errors="strict")
+    except (OSError, UnicodeDecodeError, OracleStateError):
+        return None
+    expected_log = _picker_profile_log_line(requested)
+    allowed_logs = {expected_log, f"{expected_log} (already selected)"}
+    matches = [line for line in stdout_text.splitlines() if line in allowed_logs]
+    if len(matches) != 1:
+        return None
+    ownership = state.get("ownership") if isinstance(state.get("ownership"), dict) else {}
+    receipt = {
+        "schema": PICKER_PROFILE_RECEIPT_SCHEMA,
+        "verified": True,
+        "source_thread_id": source_thread_id_from_state(state),
+        "project_root_sha256": ownership.get("project_root_sha256"),
+        "run_id": state.get("run_id"),
+        "mission_sha256": (state.get("mission") or {}).get("sha256"),
+        "slug": (state.get("oracle") or {}).get("slug"),
+        "requested": requested,
+        "observed": {
+            "model_row": "Latest",
+            "model_row_checked": True,
+            "thinking_time": requested.get("thinking_time"),
+            "slider_ordinal": requested.get("slider_ordinal"),
+            "slider_total": requested.get("slider_total"),
+            "displayed_effort": requested.get("displayed_effort"),
+            "effort_checked": True,
+            "log_line": matches[0],
+        },
+        "stdout_path": str(stdout_path),
+        "stdout_sha256": hashlib.sha256(stdout_raw).hexdigest(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    digest = _write_append_only_json(path, receipt)
+    state["picker_profile"] = {
+        **reference,
+        "verified": True,
+        "receipt_path": str(path),
+        "receipt_sha256": digest,
+    }
+    write_json_atomic(state_path, state)
+    return proven_picker_profile_receipt(state_path)
 
 
 def provider_session_evidence(state_path: Path) -> dict[str, Any]:
@@ -2289,7 +2546,7 @@ def terminal_devspace_read_route_refresh_evidence(
         or not any(candidate and candidate in folded for candidate in project_candidates)
         or transport != "devspace"
         or str(profile.get("model") or "").casefold() != "gpt-5.6"
-        or str(profile.get("model_strategy") or "") != "select"
+        or not is_compatible_pro_model_strategy(profile.get("model_strategy"))
         or str(profile.get("thinking_time") or "") != "extra-high"
         or state.get("terminal_harvested") is not True
         or str(state.get("session_authority") or "") != "terminal"
@@ -3079,7 +3336,7 @@ def _standalone_pro_attachment_no_submission_evidence(
         or state.get("web_multi_child_provenance") is not None
         or run_dir.name != run_id
         or str(profile.get("model") or "") != "gpt-5.6-sol"
-        or str(profile.get("model_strategy") or "") != "select"
+        or not is_compatible_pro_model_strategy(profile.get("model_strategy"))
         or not is_compatible_pro_thinking_time(profile.get("thinking_time"))
     ):
         return None
@@ -3342,7 +3599,7 @@ def _standalone_pro_no_submission_evidence(
         or state.get("attachments") not in (None, [])
         or run_dir.name != run_id
         or str(profile.get("model") or "") != "gpt-5.6-sol"
-        or str(profile.get("model_strategy") or "") != "select"
+        or not is_compatible_pro_model_strategy(profile.get("model_strategy"))
         or not is_compatible_pro_thinking_time(profile.get("thinking_time"))
     ):
         return None
@@ -4092,7 +4349,7 @@ def _followup_no_submission_evidence(
         or state.get("mode") != "browser"
         or state.get("transport_status") not in {"failed", "not_submitted_user_confirmed"}
         or profile.get("model") != "gpt-5.6-sol"
-        or profile.get("model_strategy") != "select"
+        or not is_compatible_pro_model_strategy(profile.get("model_strategy"))
         or not is_compatible_pro_thinking_time(profile.get("thinking_time"))
         or state.get("task_outcome") != "pending"
         or state.get("terminal_harvested") is True
@@ -5355,7 +5612,8 @@ def proven_pre_submit_manual_login_profile_uninitialized(
     locator = str(oracle.get("session_locator") or oracle.get("slug") or "").strip()
     if (
         str(profile.get("model") or "") != "gpt-5.6-sol"
-        or str(profile.get("model_strategy") or "") != "select"
+        or not is_compatible_pro_model_strategy(profile.get("model_strategy"))
+        or not is_compatible_pro_thinking_time(profile.get("thinking_time"))
         or str(profile.get("copy_profile") or "").strip()
         or str(oracle.get("resolved_version") or "").removeprefix("oracle ").strip() != "0.17.1"
         or not locator
@@ -5495,7 +5753,7 @@ def proven_pre_submit_cdp_disconnect(state_path: Path) -> dict[str, Any] | None:
         return None
     if (
         str(profile.get("model") or "") != "gpt-5.6-sol"
-        or str(profile.get("model_strategy") or "") != "select"
+        or not is_compatible_pro_model_strategy(profile.get("model_strategy"))
         or not is_compatible_pro_thinking_time(profile.get("thinking_time"))
         or copy_profile != expected_profile
         or str(oracle.get("resolved_version") or "").removeprefix("oracle ").strip() != "0.17.1"
@@ -5586,6 +5844,9 @@ def proven_pre_submit_cdp_disconnect(state_path: Path) -> dict[str, Any] | None:
     option_browser = (
         options.get("browserConfig") if isinstance(options.get("browserConfig"), dict) else {}
     )
+    expected_strategy = str(profile.get("model_strategy") or "")
+    expected_thinking_time = str(profile.get("thinking_time") or "")
+    expected_desired_model = None if expected_strategy == "current" else "GPT-5.6 Sol"
     project_root = Path(str(state.get("project_root") or ""))
     try:
         meta_cwd = Path(str(meta.get("cwd") or "")).resolve()
@@ -5603,9 +5864,12 @@ def proven_pre_submit_cdp_disconnect(state_path: Path) -> dict[str, Any] | None:
         or meta_cwd != project_root.resolve()
         or config_profile != expected_profile
         or option_profile != expected_profile
-        or config.get("desiredModel") != "GPT-5.6 Sol"
-        or config.get("modelStrategy") != "select"
-        or config.get("thinkingTime") != "heavy"
+        or config.get("desiredModel") != expected_desired_model
+        or config.get("modelStrategy") != expected_strategy
+        or config.get("thinkingTime") != expected_thinking_time
+        or option_browser.get("desiredModel") != expected_desired_model
+        or option_browser.get("modelStrategy") != expected_strategy
+        or option_browser.get("thinkingTime") != expected_thinking_time
         or options.get("model") != "gpt-5.6-sol"
         or options.get("slug") != locator
         or output_path != canonical["output"]
@@ -6537,9 +6801,7 @@ def proven_pre_submit_thinking_time_failure(state_path: Path) -> dict[str, Any] 
         if value is not None
     )
     is_current_pro = (
-        is_pro_transport(str(state.get("transport") or ""))
-        and str(profile.get("model") or "").casefold() == "gpt-5.6-sol"
-        and str(profile.get("model_strategy") or "").casefold() == "select"
+        str(profile.get("model_strategy") or "").casefold() in {"current", "select"}
         and str(profile.get("thinking_time") or "").casefold() == PRO_THINKING_TIME
     )
     # A current Pro launch may only settle this exact pre-submit refusal when

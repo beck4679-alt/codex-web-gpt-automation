@@ -668,21 +668,30 @@ globalThis.window = globalThis;
     }};
 
 const runCase = async ({{rangeFixture = fixture, validModel = true, controlledFragment = false,
-  modelRowsMountAfter = 0, contradictoryDisplay = false, duplicateExplicitMenu = false}} = {{}}) => {{
+  modelRowsMountAfter = 0, contradictoryDisplay = false, duplicateExplicitMenu = false,
+  latest = false, korean = false, missingLatest = false, wrongPill = false, level = 'pro',
+  blockedSlider = false, splitCurrentPicker = false, latestInitiallySelected = false,
+  composerStaleWhileOpen = false}} = {{}}) => {{
   const sliderFixture = rangeFixture.slider_control;
   let rawValue = sliderFixture.ariaValueNow;
   let keydowns = 0;
   let modelReads = 0;
+  let latestClicks = 0;
+  let selectedLatest = latestInitiallySelected;
+  let modelToggleClicks = 0;
+  globalThis.dispatchClickSequence = (item) => item.dispatchEvent(new Event('click'));
   const ordinal = () => rawValue - sliderFixture.ariaValueMin + 1;
   const total = sliderFixture.ariaValueMax - sliderFixture.ariaValueMin + 1;
-  const pill = new FakeElement(fixture.model_button.text, {{
+  const pill = new FakeElement(() => latest && composerStaleWhileOpen ? 'Thinking effort' : latest ?
+    (selectedLatest && rawValue === sliderFixture.ariaValueMax ? (wrongPill ? '5.6 Pro' : '6 Pro') : selectedLatest ? (korean ? '추론 수준' : 'Thinking effort') : '5.6 Pro') : fixture.model_button.text, {{
     'aria-haspopup': fixture.model_button.ariaHaspopup,
     'aria-expanded': fixture.model_button.ariaExpanded,
     'aria-controls': controlledFragment ? 'controlled-effort-fragment' : null,
   }});
   const view = new FakeElement(() =>
     (rawValue === sliderFixture.ariaValueMax || contradictoryDisplay ? 'Pro' : 'Extra High') + ', ' +
-      (contradictoryDisplay ? total : ordinal()) + ' of ' + total +
+      (korean ? total + '개 중 ' + (contradictoryDisplay ? total : ordinal()) + '번째' :
+        (contradictoryDisplay ? total : ordinal()) + ' of ' + total) +
       '.Use Left and Right arrow keys to adjust power.',
     {{'data-testid': fixture.simple_view.testid}},
   );
@@ -695,21 +704,37 @@ const runCase = async ({{rangeFixture = fixture, validModel = true, controlledFr
   view.queryOne = (selector) => selector.includes('[role="slider"]') ? slider : null;
   const power = new FakeElement('', {{role: 'menuitem', 'aria-label': fixture.power_control.ariaLabel}});
   slider.addEventListener('keydown', (event) => {{
+    if (blockedSlider) return;
+    if (event.key === 'ArrowLeft') {{
+      rawValue = Math.max(sliderFixture.ariaValueMin, rawValue - 1);
+      keydowns += 1;
+    }}
     if (event.key === 'ArrowRight') {{
       rawValue = Math.min(sliderFixture.ariaValueMax, rawValue + 1);
       keydowns += 1;
     }}
   }});
-  const model56 = new FakeElement(fixture.model_rows[0].label, {{
-    role: 'menuitemradio', 'aria-checked': validModel ? 'true' : 'false',
-    'data-state': validModel ? 'checked' : null,
+  const model56 = new FakeElement(latest ? (missingLatest ? 'Unavailable' : korean ? '최신' : 'Latest') : fixture.model_rows[0].label, {{
+    role: 'menuitemradio', 'aria-checked': () => (latest ? selectedLatest : validModel) ? 'true' : 'false',
+    'data-state': () => (latest ? selectedLatest : validModel) ? 'checked' : null,
   }});
-  const model55 = new FakeElement(fixture.model_rows[1].label, {{
-    role: 'menuitemradio', 'aria-checked': validModel ? 'false' : 'true',
-    'data-state': validModel ? null : 'checked',
+  model56.addEventListener('click', () => {{ latestClicks++; selectedLatest = true; }});
+  const model55 = new FakeElement(latest ? 'GPT-5.6 Sol' : fixture.model_rows[1].label, {{
+    role: 'menuitemradio', 'aria-checked': () => (latest ? selectedLatest : validModel) ? 'false' : 'true',
+    'data-state': () => (latest ? selectedLatest : validModel) ? null : 'checked',
   }});
+  const modelToggle = new FakeElement(splitCurrentPicker ? '6Pro' : 'Select model', {{
+    role: 'menuitem', 'aria-expanded': 'false', 'aria-label': 'Select model',
+  }});
+  modelToggle.addEventListener('click', () => {{ modelToggleClicks++; }});
+  const advancedView = new FakeElement('LatestGPT-5.6 Sol', {{
+    'data-testid': 'composer-model-picker-slider-advanced-view',
+  }});
+  advancedView.queryMany = (selector) =>
+    selector.includes('[role="menuitemradio"]') ? [model56, model55] : [];
   const menu = new FakeElement('ProPro, 5 of 5.GPT-5.6 SolGPT-5.5', {{
-    role: 'menu', 'data-testid': 'composer-intelligence-picker-content',
+    role: splitCurrentPicker ? 'group' : 'menu',
+    'data-testid': 'composer-intelligence-picker-content',
   }});
   const fragment = new FakeElement('Pro, 5 of 5.', {{
     role: 'menu', 'data-testid': 'composer-intelligence-picker-content',
@@ -722,8 +747,8 @@ const runCase = async ({{rangeFixture = fixture, validModel = true, controlledFr
     selector.includes('composer-intelligence-picker-content') ? menu : null;
   menu.queryMany = (selector) =>
     selector === '[role="menuitemradio"]' ?
-      (++modelReads <= modelRowsMountAfter ? [] : [model56, model55]) :
-    selector.includes('[role="menuitem"], button') ? [power] :
+      (splitCurrentPicker ? [] : (++modelReads <= modelRowsMountAfter ? [] : [model56, model55])) :
+    selector.includes('[role="menuitem"], button') ? (splitCurrentPicker ? [power, modelToggle] : [power]) :
     selector.includes('[role="menuitem"]') ? [power] :
     selector.includes('[role="menuitemradio"]') ? [model56, model55] :
     selector.includes('[data-testid]') ? [view] : [];
@@ -732,6 +757,12 @@ const runCase = async ({{rangeFixture = fixture, validModel = true, controlledFr
   }});
   duplicateMenu.queryOne = menu.queryOne;
   duplicateMenu.queryMany = menu.queryMany;
+  const outerMenu = new FakeElement('LatestGPT-5.6 Sol', {{role: 'menu'}});
+  outerMenu.queryOne = (selector) =>
+    selector.includes('composer-model-picker-slider-advanced-view') ? advancedView : null;
+  outerMenu.queryMany = (selector) =>
+    selector.includes('[role="menuitemradio"]') ? [model56, model55] :
+    selector.includes('[data-testid]') ? [advancedView] : [];
   globalThis.document = {{
     body: new FakeElement('body'),
     querySelector: (selector) =>
@@ -739,21 +770,45 @@ const runCase = async ({{rangeFixture = fixture, validModel = true, controlledFr
       selector.includes('composer-intelligence-picker-content') ? menu : null,
     querySelectorAll: (selector) =>
       selector.includes('button.__composer-pill') ? [pill] :
-      selector === '[role=menu]' ? (duplicateExplicitMenu ? [menu, duplicateMenu] : [menu]) :
+      selector === '[role=menu]' ? (splitCurrentPicker ? [outerMenu] :
+        (duplicateExplicitMenu ? [menu, duplicateMenu] : [menu])) :
+      selector.includes('composer-model-picker-slider-advanced-view') ?
+        (splitCurrentPicker ? [advancedView] : []) :
+      selector === '[role="menuitem"], button' ? (splitCurrentPicker ? [power, modelToggle] : [power]) :
       selector.includes('form button[aria-haspopup="menu"]') ? [pill] : [],
-    getElementById: (id) => id === 'controlled-effort-fragment' ? fragment : null,
+    getElementById: (id) => id === 'controlled-effort-fragment' ? fragment :
+      id === 'split-current-picker' ? menu : null,
     dispatchEvent: () => true,
   }};
   const logs = [];
   const Runtime = {{evaluate: async ({{expression}}) => ({{result: {{value: await eval(expression)}}}})}};
   try {{
-    await ensureThinkingTime(Runtime, 'pro', (message) => logs.push(message), 'gpt-5.6-sol');
-    return {{ok: true, logs, rawValue, ordinal: ordinal(), keydowns}};
+    if (splitCurrentPicker) pill.attrs['aria-controls'] = 'split-current-picker';
+    await ensureThinkingTime(Runtime, level, (message) => logs.push(message), latest ? null : 'gpt-5.6-sol');
+    return {{ok: true, logs, rawValue, ordinal: ordinal(), keydowns,
+      ...(latest ? {{latestClicks, modelToggleClicks}} : {{}})}};
   }} catch (error) {{
     return {{ok: false, message: error.message, logs, rawValue, ordinal: ordinal(), keydowns}};
   }}
 }};
 console.log(JSON.stringify({{
+  latestFrom56: await runCase({{latest: true}}),
+  latestKoreanFrom56: await runCase({{latest: true, korean: true, rangeFixture: oneBasedFixture}}),
+  latestSplitCurrentPicker: await runCase({{
+    latest: true, level: 'extra-high', splitCurrentPicker: true, latestInitiallySelected: true,
+    rangeFixture: {{...fixture, slider_control: {{...fixture.slider_control, ariaValueNow: 3}}}},
+  }}),
+  latestSplitProOpen: await runCase({{
+    latest: true, splitCurrentPicker: true, latestInitiallySelected: true,
+    composerStaleWhileOpen: true,
+  }}),
+  missingLatest: await runCase({{latest: true, missingLatest: true}}),
+  latestWrongPill: await runCase({{latest: true, wrongPill: true}}),
+  latestLight: await runCase({{latest: true, level:'light'}}),
+  latestStandard: await runCase({{latest: true, level:'standard'}}),
+  latestExtended: await runCase({{latest: true, level:'extended'}}),
+  latestExtraHigh: await runCase({{latest: true, level:'extra-high'}}),
+  blockedExtraHigh: await runCase({{latest: true, level:'extra-high', blockedSlider:true}}),
   selectedZeroBased: await runCase(),
   controlledPortal: await runCase({{controlledFragment: true}}),
   delayedModelRows: await runCase({{
@@ -780,6 +835,43 @@ console.log(JSON.stringify({{
     )
     assert completed.returncode == 0, completed.stderr
     result = json.loads(completed.stdout)
+    for case in ('latestFrom56', 'latestKoreanFrom56'):
+        assert result[case]['ok'] is True, result[case]
+        assert result[case]['latestClicks'] == 1
+        assert 'Latest explicitly selected' in result[case]['logs'][0]
+    assert result['latestSplitCurrentPicker'] == {
+        'ok': True,
+        'logs': [
+            '[browser] Thinking time: Latest / extra-high / 4 of 5 '
+            '(Latest explicitly selected) (already selected)'
+        ],
+        'rawValue': 3,
+        'ordinal': 4,
+        'keydowns': 0,
+        'latestClicks': 1,
+        'modelToggleClicks': 0,
+    }
+    assert result['latestSplitProOpen'] == {
+        'ok': True,
+        'logs': [
+            '[browser] Thinking time: Latest / 6 Pro '
+            '(Latest explicitly selected) (already selected)'
+        ],
+        'rawValue': 4,
+        'ordinal': 5,
+        'keydowns': 0,
+        'latestClicks': 1,
+        'modelToggleClicks': 0,
+    }
+    for case in ('missingLatest', 'latestWrongPill'):
+        assert result[case]['ok'] is False, result[case]
+    for ordinal, case in enumerate(('latestLight', 'latestStandard', 'latestExtended', 'latestExtraHigh'), 1):
+        assert result[case]['ok'] is True, result[case]
+        assert result[case]['ordinal'] == ordinal
+        assert result[case]['latestClicks'] == 1
+    assert result['blockedExtraHigh']['ok'] is False
+    assert 'without confirmed Extra-high' in result['blockedExtraHigh']['message']
+    assert 'Pro Extended' not in result['blockedExtraHigh']['message']
     assert result["selectedZeroBased"] == {
         "ok": True,
         "logs": ["[browser] Thinking time: Pro, 5 of 5 (already selected)"],
@@ -836,6 +928,7 @@ def test_published_0180_pro_power_slider_migrates_known_exact_bytes(
     contract = compat.PATCHES[relative]
     legacy_hashes = list(contract["legacy_patched"])
     assert legacy_hashes == [
+        "1aa1a216f71e1213c2056efb0db4c4de7c2b2c505311e1be98c2b6a2784521dd",
         "978f754ba4011957790530474d27d629a8d353dd449f8e2636e02a9abd27b81a",
         "a19ce77fe57b4fa1a290e130da323377ed69b6e51b1ad133b1ab5355ead59345",
     ]
@@ -843,7 +936,8 @@ def test_published_0180_pro_power_slider_migrates_known_exact_bytes(
         legacy_hash: str(contract.get("legacy_patches", {}).get(legacy_hash) or contract["legacy_patch"])
         for legacy_hash in legacy_hashes
     }
-    assert legacy_patches[legacy_hashes[1]] == (
+    assert legacy_patches[legacy_hashes[0]] == "thinkingTime.gpt56-pro-power-slider.pre-latest.patch"
+    assert legacy_patches[legacy_hashes[2]] == (
         "thinkingTime.gpt56-pro-power-slider.pre-aria-range.patch"
     )
 

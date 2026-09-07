@@ -87,8 +87,9 @@ def ensure_recent_registered_app_read_gate(
 ) -> dict[str, Any]:
     """Require a recent cryptographic regular-run read proof before Pro.
 
-    The proof is deliberately produced by the ordinary non-Pro onboarding
-    final gate.  A local HTTP health check, allowedRoots entry, successful
+    The proof is deliberately produced by the regular DevSpace onboarding
+    final gate with explicit Latest / 6 Pro picker evidence. A local HTTP
+    health check, allowedRoots entry, successful
     ``open_workspace`` call, or model-authored marker is not enough: the gate
     revalidates the exact open/read/read_chunk receipts and conversation echo.
     This function is read-only and is safe to call from ``--dry-run``.
@@ -166,6 +167,11 @@ def ensure_recent_registered_app_read_gate(
             reason = "final-gate-time-invalid"
         elif age_seconds > max_age_seconds:
             reason = "final-gate-expired"
+        elif (
+            recorded.get("observed_profile") != "Latest / 6 Pro"
+            or recorded.get("picker_profile_verified") is not True
+        ):
+            reason = "final-gate-picker-proof-invalid"
         else:
             return {
                 "schema": PRO_APP_READ_GATE_SCHEMA,
@@ -181,6 +187,11 @@ def ensure_recent_registered_app_read_gate(
                 "conversation_url": str(recorded.get("conversation_url") or ""),
                 "state_path": str(state_file),
                 "receipt_count": len(recorded.get("tool_read_receipts") or []),
+                "model": "gpt-5.6-sol",
+                "model_strategy": "current",
+                "thinking_time": "pro",
+                "observed_profile": str(recorded.get("observed_profile") or ""),
+                "picker_profile_verified": recorded.get("picker_profile_verified") is True,
             }
 
     manual_snapshot_action_required = (
@@ -193,8 +204,11 @@ def ensure_recent_registered_app_read_gate(
         "reason": reason,
         "max_age_seconds": max_age_seconds,
         "required_transport": "devspace",
-        "required_model": "gpt-5.6",
-        "required_thinking_time": "extra-high",
+        "required_model": "gpt-5.6-sol",
+        "required_model_strategy": "current",
+        "required_thinking_time": "pro",
+        "required_observed_profile": "Latest / 6 Pro",
+        "required_picker_profile_receipt": True,
         "required_tools": ["open_workspace", "read", "read_chunk"],
         "next_action": "RUN_FRESH_REGULAR_NON_PRO_FINAL_GATE_CANARY",
         "instructions": "Complete or refresh onboarding stage 08_final_gate, then rerun the same Pro dry-run.",

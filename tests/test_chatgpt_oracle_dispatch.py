@@ -38,9 +38,11 @@ def test_regular_and_deep_research_compile_to_oracle_without_attachments(tmp_pat
         assert result["contract"]["attachments"] == []
         assert value["app_name"] == "DevSpace"
         assert value["task_outcome_contract"] == "v1"
-        assert value["model"] == "gpt-5.6"
-        assert value["model_strategy"] == "select"
+        assert value["model"] == "gpt-5.6-sol"
+        assert value["model_strategy"] == "current"
         assert value["thinking_time"] == "extra-high"
+        assert value["browser_intent"]["model_row"] == "Latest"
+        assert value["browser_intent"]["slider_ordinal"] == 4
         assert value["research"] == research
 
 
@@ -151,8 +153,9 @@ def test_pro_defaults_to_devspace_without_attachments(tmp_path: Path) -> None:
     assert value["transport"] == "pro-devspace-readonly"
     assert value["app_name"] == "DevSpace"
     assert value["model"] == "gpt-5.6-sol"
-    assert value["model_strategy"] == "select"
+    assert value["model_strategy"] == "current"
     assert value["thinking_time"] == "pro"
+    assert value["browser_intent"]["displayed_effort"] == "6 Pro"
     assert value["research"] == "off"
     assert value["task_outcome_contract"] == "v1"
     assert "attachments" not in value

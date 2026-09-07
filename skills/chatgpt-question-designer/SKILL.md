@@ -1,6 +1,6 @@
 ---
 name: chatgpt-question-designer
-description: Part of the current Oracle prompt-design path; use before submitting GPT/browser questions for answering, designing, debugging, reviewing, planning, researching, synthesizing, editing, or orchestration. Selects an explicit purpose-specific cognitive profile without collapsing every task into adversarial review.
+description: Design Oracle prompts for non-implementation cognitive work through the standing @codex Latest then 6 Pro route while preserving purpose-specific profiles and exact legacy recovery.
 ---
 
 # ChatGPT Question Designer
@@ -26,6 +26,18 @@ Use this skill to give each question the cognitive posture its purpose needs. Co
 
 This skill is a shared design layer for `chatgpt-pro-browser`, `chatgpt-thinking-browser`, and `chatgpt-deep-research-browser`. It does not own browser execution, approval authority, or deterministic verification.
 
+The standing default sends every non-implementation cognitive requirement to
+Oracle with the manually registered `@codex` app. Browser proof requires exact
+`Latest` checked, full `5/5` qualification, the composer's `Thinking effort`
+control, and a `6 Pro` signal in either the model menu or composer. This includes requirements analysis, design,
+architecture, planning, research and source synthesis, option comparison,
+advice, critique, review, adjudication, and semantic verification. The user has
+given standing authorization; do not request per-run Pro approval and do not
+fall back to GPT-5.6 or GPT-5.5. Native Sol owns implementation and commands,
+native Luna owns chores and focused testing, and Astra owns orchestration,
+exact recovery, deterministic evidence, integration, release, and reporting.
+This Oracle path is not CGW and must never restore `chatgpt-web/*` routing.
+
 ## Question Type
 
 Classify the question before writing the prompt:
@@ -40,15 +52,21 @@ Classify the question before writing the prompt:
 
 Never infer `review` merely from `read-only`, `advisory`, `research`, or an unknown label. An explicit unknown manifest profile fails before submission. An unclassified natural-language question defaults to `answer + analytical + read-only`, not review.
 
-## Regular GPT Operation Mode Overlay
+## Standing Oracle Cognitive Mode Overlay
 
-For non-Pro regular `GPT` / `지피티` runs through `chatgpt-thinking-browser`, preserve the selected operation mode:
+Preserve the selected cognitive purpose inside the standing `Latest` then
+`6 Pro` route:
 
 - `answer` is analytical, read-only, and directly answers the original request.
 - `review` / `검토모드` alone is adversarial. A blocker needs criterion, evidence, and impact; use `PASS`, `PASS_WITH_CONDITIONS`, `REVISE_LOCAL`, `REOPEN_DESIGN`, or `BLOCK` when the owning schema supports them.
 - `plan` / `계획모드` is constructive and read-only: reframe if useful, compare viable design families, choose one coherent path, and put risks last. Prior plans and reviews are nonbinding and hidden by default.
-- `edit` / `수정모드` performs `inspect -> edit -> test -> inspect result -> adapt`; it does not begin with a generic review.
-- `orchestrator` / `지휘` owns live workspace exploration, decisions, edits, tests, bounded adaptation, and every expensive strategy or implementation branch. When parallelism is useful, the one web GPT ExecutionMission partitions independent work into internal lanes or parallel tool calls and integrates them itself. Same-task submissions against one project stay serialized; separately bound Codex tasks may run concurrently without sharing ownership. Codex retains only submission/recovery, locks, hashes, exact browser identity, deterministic host-only verification, release, and irreversible boundaries; generic local tool-parallelism guidance never authorizes Codex to perform the delegated work locally.
+- `edit` / `수정모드` and `orchestrator` / `지휘` remain explicit
+  compatibility-workflow labels, not the standing default. They retain their
+  recorded schema and authority only when an existing compatibility workflow
+  is explicitly selected or exactly recovered. For ordinary new work, Oracle
+  supplies the semantic plan and decisions, native Sol performs edits and
+  commands, Luna performs focused tests and chores, and Astra integrates and
+  verifies deterministic evidence.
 - `research` builds evidence; `synthesis` resolves candidates into a new coherent design. Neither is review.
 
 Use `codex.chatgpt.prompt-architecture/v3` receipts with orthogonal `task_kind`, `cognitive_frame`, `action_authority`, `context_policy`, `challenge_policy`, `output_contract`, `reasoning_budget`, and `decision_authority`. Local `AGENTS.md`, local skills, explicit no-write wording, and destructive-action boundaries outrank the overlay.
@@ -60,8 +78,16 @@ Every non-trivial GPT/browser question should include:
 1. `Goal`: what decision or artifact the answer should improve.
 2. `Original task`: preserve the user's request separately from any candidate artifact.
 3. `Cognitive profile`: answer, research, plan, review, edit, orchestrator, synthesis, or an explicit Web Multi role.
-4. `Evidence boundary`: list the live DevSpace workspace scope for regular GPT and qualified Pro, web/source constraints, freshness limits, and what cannot be inspected. New qualified Pro uses read-only DevSpace only. A separately explicit `pro-attachment` request may use a read-only immutable/external-evidence packet as a new route; it is never an automatic fallback from DevSpace. Persisted legacy attachment runs keep their exact recovery contract.
-5. `Action authority`: read-only, bounded workspace write, or mission-owned adaptive execution.
+4. `Evidence boundary`: list the live read-only DevSpace workspace scope for
+   `@codex` Latest/6 Pro, web/source constraints, freshness limits, and what
+   cannot be inspected. A separately explicit compatibility `pro-attachment`
+   request may use a read-only immutable/external-evidence packet; it is never
+   an automatic fallback from DevSpace. Persisted legacy attachment runs keep
+   their exact recovery contract.
+5. `Action authority`: the standing Oracle cognitive route is read-only;
+   identify the native Sol implementation handoff when writes or commands are
+   required. Preserve a different authority only for an explicitly selected or
+   exactly recovered compatibility workflow.
 6. `Confidence discipline`: separate evidence-backed findings, inference, speculation, and unknowns.
 7. `Answer shape`: compact sections; no vague approval; code-shaped output when code-oriented.
 
@@ -79,11 +105,34 @@ Append an adversarial module only for explicit review/counterexample roles: requ
 
 Context selection must match the question type.
 
-- New non-Pro direct, plan, review, edit, orchestrator, Deep Research, comprehensive, and Web Multi work uses Oracle plus the manually registered workspace app. The composer receives only the configured app mention (default `@codex`) and the absolute UTF-8 mission path. The mission tells GPT which project files, logs, tests, constraints, and artifacts to inspect through DevSpace.
-- Regular web work defaults to `gpt-5.6` at the highest supported non-Pro reasoning tier. Pro is quota-limited and may be designed only after an explicit user request; never infer or auto-upgrade to it. Every new qualified Pro run uses Oracle, `GPT-5.6 Sol` at the Pro effort, and read-only DevSpace at the exact project root for design, advice, or review. It must not create, edit, or remove files or run commands; a regular `GPT-5.6` `extra-high` DevSpace stage owns those actions. Explicit `pro-attachment` remains a separate read-only immutable/external-evidence route and is never an automatic fallback. Persisted legacy `pro-devspace` write runs retain their exact authority only during recovery.
+- Every new standing cognitive stage uses Oracle plus the manually registered
+  workspace app. The composer receives only the configured app mention
+  (default `@codex`) and the absolute UTF-8 mission path. The Oracle `current`
+  model strategy is a compatibility carrier: browser proof must show exact
+  `Latest` checked, full `5/5` qualification, the composer's `Thinking effort`
+  control, and a `6 Pro` signal in either the model menu or composer. Never pass invented `gpt-6` or
+  `latest` CLI model slugs, leave an arbitrary current selection in place, or
+  downgrade to GPT-5.6/GPT-5.5 when the required picker evidence is absent.
+- Latest/6 Pro inspects the exact approved DevSpace root read-only and returns
+  requirements, designs, plans, research, comparisons, advice, critiques,
+  reviews, adjudications, or semantic-verification findings. It does not create,
+  edit, or remove files, run implementation commands, operate devices, or alter
+  external state. Native `gpt-5.6-sol` owns those actions; Luna may perform
+  chores and focused tests under its assigned scope.
+- Explicit `pro-attachment`, selector-era profiles, Web Multi, and comprehensive
+  profiles remain compatibility workflows rather than the standing default.
+  Their current schemas and persisted authority remain valid for explicit use
+  or exact recovery, and are never silently substituted when the standing
+  Latest/6 Pro route fails.
 - CodexPro is frozen for new work. It may appear only while recovering an already persisted legacy agbrowse run; never design a new prompt around CodexPro `tree/search/read`, app registration, app repair, or a CodexPro fallback.
-- Code/design/debug/refactor: give the regular web GPT a narrow project-contained mission and let it inspect the live workspace through DevSpace. Do not duplicate the workspace into attachments or a ZIP.
-- Planning/review: identify the live draft, research, acceptance criteria, local guidance, and known risks by project-relative paths in the mission. New Pro planning/review remains inside read-only DevSpace; use an explicit attachment packet only for its immutable/external-evidence boundary.
+- Code/design/debug/refactor: give Latest/6 Pro a narrow project-contained
+  non-implementation mission and let it inspect the live workspace through
+  read-only DevSpace. Hand the resulting implementation mission to native Sol;
+  do not duplicate the workspace into attachments or a ZIP.
+- Planning/review: identify the live draft, research, acceptance criteria, local
+  guidance, and known risks by project-relative paths. The standing route stays
+  inside read-only DevSpace; an explicit compatibility attachment packet is
+  only for its immutable/external-evidence boundary.
 - Investigation/source synthesis: identify internal findings and provenance in the DevSpace-visible mission, and use web/search separately for current public facts.
 - Idea expansion: put the seed, constraints, non-goals, audience, and known alternatives in the mission; do not preselect a conclusion.
 
@@ -96,8 +145,14 @@ This skill designs the prompt packet; it must not erase local project question t
 - Every new Oracle stage is a one-shot session with its own exact slug. Do not add legacy `session_policy`, `session_affinity_key`, `inquiry_chain_id`, or `chat_url` fields to a new Oracle manifest.
 - Preserve semantic continuity in project-contained mission and handoff files. In comprehensive mode, the completing web stage writes the next stage's exact mission and receipt; local Codex validates bytes, paths, hashes, identity, and transition without rewriting its meaning.
 - Recovery uses only the stored exact Oracle slug with `harvest` or `live`. It never restarts, resubmits, or changes the model/reasoning level.
-- Genuine Web Multi uses distinct Oracle sessions and copied profiles for independent lanes. Use it only when simultaneous independent solvers materially help; never simulate multiple roles inside one session and never replace it with local Codex exploration.
-- An explicit `울트라 GPT 모드` or `Ultra GPT Mode` request selects the `ultra-gpt` comprehensive profile. It uses web GPT sessions for planning, independent lanes, merging, review, implementation, and verification while local Codex performs only deterministic orchestration and the final local gate. Do not spawn native Codex subagents for semantic work in this profile.
+- Genuine Web Multi remains an explicit compatibility workflow using distinct
+  Oracle sessions and copied profiles. Preserve its schema and exact recovery;
+  never present it as the standing engine or simulate multiple roles inside one
+  session.
+- An explicit `울트라 GPT 모드` or `Ultra GPT Mode` request selects the existing
+  `ultra-gpt` compatibility profile. Its recorded stage authorities and recovery
+  rules remain unchanged. It does not redefine the standing Oracle/Sol/Luna/Astra
+  split and must not be described as a new engine.
 - Local `AGENTS.md`, local skills, and task-specific question templates outrank the shared integrity contract. Preserve their answer shape and apply only compatible evidence and session metadata.
 - Independent approval, plan review, verifier, and release gates use fresh stages with explicitly scoped evidence.
 
@@ -118,11 +173,17 @@ Any active gate should either be fixed before submission or named in the prompt 
 
 Skip GPT/browser questioning when:
 
-- the task is tiny and deterministic verification answers it better;
-- the answer depends on exact local code/tests rather than broad judgment;
-- selected context is under roughly 8k tokens and the main agent can directly inspect it;
-- the prompt would ask for approval of a conclusion already proven by tests;
-- no useful counterexample, source freshness, alternative design, or external synthesis is expected.
+- the task is purely mechanical implementation, a command, a chore, or a focused
+  deterministic test assigned to native Sol or Luna;
+- exact deterministic evidence already answers the question without semantic
+  interpretation;
+- the prompt would ask for approval of a conclusion already proven by the
+  authoritative deterministic gate.
+
+Do not skip the standing Oracle route merely because the context is small, the
+task appears easy, or Pro would previously have required per-run approval. If a
+listed non-implementation cognitive requirement is present, route it through
+Latest/6 Pro or report the exact route failure without a lower-model fallback.
 
 Use genuine Web Multi-GPT only when independent parallel solvers are worth the latency and one merger can consume their file handoffs. It does not replace DevSpace evidence authority and must not increase local Codex exploration.
 

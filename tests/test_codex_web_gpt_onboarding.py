@@ -6,6 +6,7 @@ import json
 import re
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -193,6 +194,110 @@ def test_status_requires_exact_root_order_and_bootstrap_match(tmp_path: Path) ->
     )
     assert mismatch["checks"]["exact_roots_configured"] is False
     assert mismatch["ready"] is False
+
+
+def _write_bootstrap_recovery_receipt(
+    *,
+    codex_home: Path,
+    devspace_home: Path,
+    hostname: str,
+    observed_at: datetime | None = None,
+) -> Path:
+    config_text = (devspace_home / "config.json").read_bytes().decode("utf-8-sig")
+    target = codex_home / module.BOOTSTRAP_RECOVERY_RELATIVE
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        json.dumps({
+            "schema": module.BOOTSTRAP_RECOVERY_SCHEMA,
+            "healthy": True,
+            "config_sha256": hashlib.sha256(config_text.encode("utf-8")).hexdigest(),
+            "hostname": hostname,
+            "watchdog_pid": 4242,
+            "reason": "healthy-recovery-observed",
+            "observed_at": (observed_at or datetime.now(timezone.utc)).isoformat(),
+        }),
+        encoding="utf-8",
+    )
+    return target
+
+
+def test_tailscale_bootstrap_recovery_requires_recent_raw_utf8_hash_and_hostname(
+    tmp_path: Path,
+) -> None:
+    environment = _wizard_environment(tmp_path, ready=True)
+    codex_home = Path(environment["codex_home"])
+    devspace_home = Path(environment["devspace_home"])
+    config = devspace_home / "config.json"
+    payload = json.loads(config.read_text(encoding="utf-8"))
+    config.write_bytes(json.dumps(payload, indent=2).replace("\n", "\r\n").encode("utf-8"))
+    receipt = _write_bootstrap_recovery_receipt(
+        codex_home=codex_home,
+        devspace_home=devspace_home,
+        hostname="device.tailnet.ts.net",
+    )
+
+    assert module.stateful_bootstrap_recovery_verified(
+        codex_home=codex_home,
+        devspace_home=devspace_home,
+        registration_url="https://device.tailnet.ts.net/mcp",
+    ) is True
+
+    stale = json.loads(receipt.read_text(encoding="utf-8"))
+    stale["observed_at"] = (datetime.now(timezone.utc) - timedelta(minutes=6)).isoformat()
+    receipt.write_text(json.dumps(stale), encoding="utf-8")
+    assert module.stateful_bootstrap_recovery_verified(
+        codex_home=codex_home,
+        devspace_home=devspace_home,
+        registration_url="https://device.tailnet.ts.net/mcp",
+    ) is False
+
+    _write_bootstrap_recovery_receipt(
+        codex_home=codex_home,
+        devspace_home=devspace_home,
+        hostname="other.tailnet.ts.net",
+    )
+    assert module.stateful_bootstrap_recovery_verified(
+        codex_home=codex_home,
+        devspace_home=devspace_home,
+        registration_url="https://device.tailnet.ts.net/mcp",
+    ) is False
+
+    _write_bootstrap_recovery_receipt(
+        codex_home=codex_home,
+        devspace_home=devspace_home,
+        hostname="device.tailnet.ts.net",
+    )
+    config.write_bytes(config.read_bytes() + b"\r\n")
+    assert module.stateful_bootstrap_recovery_verified(
+        codex_home=codex_home,
+        devspace_home=devspace_home,
+        registration_url="https://device.tailnet.ts.net/mcp",
+    ) is False
+
+
+def test_tailscale_manual_confirmation_cannot_bypass_bootstrap_receipt(tmp_path: Path) -> None:
+    environment = _wizard_environment(tmp_path, ready=True)
+    state = module.start_onboarding(
+        provider="tailscale",
+        roots=[str(environment["project"])],
+        codex_home=environment["codex_home"],
+        devspace_home=environment["devspace_home"],
+        hostname_discovery=lambda: "device.tailnet.ts.net",
+    )
+    state["stages"]["04_reboot_service"] = {
+        "status": "user_confirmed",
+        "confirmed_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    evaluated = module.evaluate_stages(
+        state,
+        codex_home=environment["codex_home"],
+        devspace_home=environment["devspace_home"],
+        **environment["probes"],
+    )
+
+    assert evaluated["checks"]["bootstrap_recovery_verified"] is False
+    assert evaluated["checks"]["restart_persistence_verified"] is False
 
 
 def test_configure_app_name_is_atomic_and_contains_only_public_name(tmp_path: Path) -> None:
@@ -434,6 +539,7 @@ def _bound_final_gate_run(
     *,
     registered_app_final_gate: bool = False,
     source_thread_id: str | None = None,
+    profile_proof: bool = True,
 ) -> Path:
     codex_home = Path(environment["codex_home"])
     project = Path(environment["project"])
@@ -453,13 +559,60 @@ def _bound_final_gate_run(
         encoding="utf-8",
     )
     output_sha256 = hashlib.sha256(output.read_bytes()).hexdigest()
+    stdout = run_dir / "stdout.log"
+    stdout.write_text(
+        (
+            "[browser] Thinking time: Latest / 6 Pro (Latest explicitly selected)\n"
+            if profile_proof
+            else "[browser] Thinking time: Pro\n"
+        ),
+        encoding="utf-8",
+    )
+    picker_intent = {
+        "schema": "codex.chatgpt.oracle-browser-intent/v1",
+        "model_row": "Latest",
+        "model_selection": "explicit",
+        "thinking_time": "pro",
+        "slider_ordinal": 5,
+        "slider_total": 5,
+        "displayed_effort": "6 Pro",
+        "verification": "observed-log-required",
+    }
+    picker_path = run_dir / "picker-profile-receipt.json"
+    picker_receipt = {
+        "schema": "codex.chatgpt.oracle-picker-profile-receipt/v1",
+        "verified": True,
+        "source_thread_id": source_thread_id or "",
+        "project_root_sha256": None,
+        "run_id": "f" * 32,
+        "mission_sha256": mission_sha256,
+        "slug": "oracle-onboarding-final",
+        "requested": picker_intent,
+        "observed": {
+            "model_row": "Latest",
+            "model_row_checked": True,
+            "thinking_time": "pro",
+            "slider_ordinal": 5,
+            "slider_total": 5,
+            "displayed_effort": "6 Pro",
+            "effort_checked": True,
+            "log_line": "[browser] Thinking time: Latest / 6 Pro (Latest explicitly selected)",
+        },
+        "stdout_path": str(stdout.resolve()),
+        "stdout_sha256": hashlib.sha256(stdout.read_bytes()).hexdigest(),
+    }
+    picker_path.write_text(json.dumps(picker_receipt) + "\n", encoding="utf-8")
     state = {
         "schema": "codex.chatgpt.oracle-run-state/v1",
         "run_id": "f" * 32,
         "project_root": str(project.resolve()),
         "transport": "devspace",
         "app_name": "codex",
-        "profile": {"model": "gpt-5.6", "thinking_time": "extra-high"},
+        "profile": {
+            "model": "gpt-5.6-sol",
+            "model_strategy": "current",
+            "thinking_time": "pro",
+        },
         "status": "complete",
         "transport_status": "complete",
         "session_authority": "terminal",
@@ -471,7 +624,14 @@ def _bound_final_gate_run(
             "slug": "oracle-onboarding-final",
             "conversation_url": "https://chatgpt.com/c/onboarding-final-test",
         },
-        "artifacts": {"output": str(output.resolve())},
+        "artifacts": {"output": str(output.resolve()), "stdout": str(stdout.resolve())},
+        "picker_profile": {
+            "schema": "codex.chatgpt.oracle-picker-profile-reference/v1",
+            "requested": picker_intent,
+            "verified": True,
+            "receipt_path": str(picker_path.resolve()),
+            "receipt_sha256": hashlib.sha256(picker_path.read_bytes()).hexdigest(),
+        },
         **({"registered_app_final_gate": True} if registered_app_final_gate else {}),
         **(
             {
@@ -717,6 +877,46 @@ def test_final_gate_requires_recorded_non_pro_exact_root_read(tmp_path: Path) ->
     assert after["done"] is True
     assert after["completion_state"] == "verified"
     assert after["completion_label"] == "전체 설치 및 실제 프로젝트 연결 검증 완료"
+
+
+def test_final_gate_rejects_requested_profile_without_observed_latest_pro_log(
+    tmp_path: Path,
+) -> None:
+    environment = _wizard_environment(tmp_path, ready=True)
+    module.start_onboarding(
+        provider="custom",
+        registration_url="https://mcp.example.com/mcp",
+        roots=[str(environment["project"])],
+        codex_home=environment["codex_home"],
+    )
+    run_dir = _bound_final_gate_run(
+        environment,
+        ["AGENTS.md"],
+        profile_proof=False,
+    )
+
+    with pytest.raises(module.OnboardingError, match="FINAL_GATE_ORACLE_PROFILE_PROOF_MISSING"):
+        module.record_final_gate(
+            read_ok=True,
+            root=str(environment["project"]),
+            evidence="Requested profile alone is not observed browser proof.",
+            listing=["AGENTS.md"],
+            run_dir=run_dir,
+            codex_home=environment["codex_home"],
+            devspace_home=environment["devspace_home"],
+        )
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "[browser] Thinking time: Latest / 6 Pro (Latest explicitly selected)",
+        "[browser] Thinking time: Latest / 6 Pro (Latest explicitly selected) (already selected)",
+    ],
+)
+def test_final_gate_profile_proof_accepts_only_exact_success_log_variants(line: str) -> None:
+    assert module.FINAL_GATE_PROFILE_PROOF_RE.fullmatch(line)
+    assert not module.FINAL_GATE_PROFILE_PROOF_RE.fullmatch(line.replace("Latest", "GPT-5.6", 1))
 
 
 def test_final_gate_rejects_self_authored_open_output_without_receipts(tmp_path: Path) -> None:
@@ -1043,9 +1243,19 @@ def test_prepare_final_gate_writes_exact_host_state_manifest_and_commands(
         "app_name": "codex",
         "mode": "browser",
         "transport": "devspace",
-        "model": "gpt-5.6",
-        "model_strategy": "select",
-        "thinking_time": "extra-high",
+        "model": "gpt-5.6-sol",
+        "model_strategy": "current",
+        "thinking_time": "pro",
+        "browser_intent": {
+            "schema": "codex.chatgpt.oracle-browser-intent/v1",
+            "model_row": "Latest",
+            "model_selection": "explicit",
+            "thinking_time": "pro",
+            "slider_ordinal": 5,
+            "slider_total": 5,
+            "displayed_effort": "6 Pro",
+            "verification": "observed-log-required",
+        },
         "research": "off",
         "task_outcome_contract": "v1",
         "archive": "never",
@@ -1264,8 +1474,16 @@ def test_non_tailscale_instructions_never_route_through_tailscale_helper(
     assert "OS login service" in rendered
 
 
-@pytest.mark.parametrize(("language", "needle"), [("ko", "현재 상태"), ("en", "Current state")])
-def test_render_step_is_human_readable_per_language(tmp_path: Path, language: str, needle: str) -> None:
+@pytest.mark.parametrize(
+    ("language", "needle", "name_index"),
+    [("ko", "사용자 확인 필요", 0), ("en", "Your action is needed", 1)],
+)
+def test_render_step_is_human_readable_per_language(
+    tmp_path: Path,
+    language: str,
+    needle: str,
+    name_index: int,
+) -> None:
     environment = _wizard_environment(tmp_path, ready=False)
     module.start_onboarding(
         provider="custom",
@@ -1281,7 +1499,8 @@ def test_render_step_is_human_readable_per_language(tmp_path: Path, language: st
     )
     rendered = module.render_step(step)
     assert needle in rendered
-    assert step["current_stage"] in rendered
+    assert module.UI.STAGE_NAMES[step["current_stage"]][name_index] in rendered
+    assert step["current_stage"] not in rendered
     assert "{" not in rendered
 
 
@@ -2016,7 +2235,11 @@ def test_cli_start_existing_state_requires_reset_and_corrupt_state_can_be_replac
         codex_home=codex_home,
     )
 
-    assert module.main(start_arguments) == 2
+    # Human mode resumes the saved wizard. Machine mode retains the explicit
+    # duplicate-start diagnostic for automation callers.
+    assert module.main(start_arguments) == 4
+    assert capsys.readouterr().out
+    assert module.main(["--json", *start_arguments]) == 2
     assert "ONBOARDING_ALREADY_STARTED" in capsys.readouterr().out
 
     state_file = module.state_path(codex_home=codex_home)
@@ -2024,9 +2247,9 @@ def test_cli_start_existing_state_requires_reset_and_corrupt_state_can_be_replac
     state.pop("provider")
     state_file.write_text(json.dumps(state), encoding="utf-8")
 
-    assert module.main(start_arguments) == 2
+    assert module.main(["--json", *start_arguments]) == 2
     assert "ONBOARDING_STATE_CORRUPT" in capsys.readouterr().out
 
     (codex_home / "receipts" / "codexpro-automation-1.json").unlink()
     assert module.main([*start_arguments, "--reset"]) != 2
-    assert "01_install" in capsys.readouterr().out
+    assert capsys.readouterr().out
