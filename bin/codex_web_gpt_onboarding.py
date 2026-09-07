@@ -25,6 +25,7 @@ from typing import Any, Mapping, Sequence
 from chatgpt_chrome_local_network import browser_profile_loopback_allowed, policy_status
 import codex_local_multi_gpt_setup as LOCAL_MULTI_GPT_SETUP
 import codex_web_gpt_onboarding_ui as UI
+import chatgpt_oracle_state as ORACLE_STATE
 
 
 PRODUCT_NAME = "Codex Web GPT Automation"
@@ -1039,67 +1040,21 @@ def _oracle_final_gate_binding(
         or FINAL_GATE_PROFILE_PROOF_RE.search(stdout_text) is None
     ):
         raise OnboardingError("FINAL_GATE_ORACLE_PROFILE_PROOF_MISSING")
-    picker_reference = (
-        run_state.get("picker_profile")
-        if isinstance(run_state.get("picker_profile"), dict)
-        else {}
-    )
-    expected_picker_request = {
-        "schema": "codex.chatgpt.oracle-browser-intent/v1",
-        "model_row": "Latest",
-        "model_selection": "explicit",
-        "thinking_time": "pro",
-        "slider_ordinal": 5,
-        "slider_total": 5,
-        "displayed_effort": "6 Pro",
-        "verification": "observed-log-required",
-    }
-    picker_path = directory / "picker-profile-receipt.json"
+    # The shared reader validates actual DOM observations and exact run/log hashes.
+    # Legacy v1 receipts remain recovery-only and cannot qualify a new final gate.
     try:
-        if picker_path.is_symlink():
-            raise OSError("picker proof must not be a symlink")
-        picker_bytes = picker_path.read_bytes()
-        picker_receipt = json.loads(picker_bytes.decode("utf-8", errors="strict"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        picker_proof = ORACLE_STATE.proven_picker_profile_receipt(state_path)
+    except (OSError, ValueError, ORACLE_STATE.OracleStateError) as exc:
         raise OnboardingError("FINAL_GATE_ORACLE_PICKER_RECEIPT_INVALID") from exc
-    picker_observed = (
-        picker_receipt.get("observed")
-        if isinstance(picker_receipt, dict) and isinstance(picker_receipt.get("observed"), dict)
-        else {}
-    )
-    ownership = run_state.get("ownership") if isinstance(run_state.get("ownership"), dict) else {}
-    allowed_profile_logs = {
-        "[browser] Thinking time: Latest / 6 Pro (Latest explicitly selected)",
-        "[browser] Thinking time: Latest / 6 Pro (Latest explicitly selected) (already selected)",
-    }
     if (
-        picker_reference.get("schema") != "codex.chatgpt.oracle-picker-profile-reference/v1"
-        or picker_reference.get("requested") != expected_picker_request
-        or picker_reference.get("verified") is not True
-        or picker_reference.get("receipt_path") != str(picker_path)
-        or picker_reference.get("receipt_sha256") != hashlib.sha256(picker_bytes).hexdigest()
-        or not isinstance(picker_receipt, dict)
-        or picker_receipt.get("schema") != "codex.chatgpt.oracle-picker-profile-receipt/v1"
-        or picker_receipt.get("verified") is not True
-        or picker_receipt.get("source_thread_id") != source_thread_id
-        or picker_receipt.get("project_root_sha256") != ownership.get("project_root_sha256")
-        or picker_receipt.get("run_id") != run_state.get("run_id")
-        or picker_receipt.get("mission_sha256") != (run_state.get("mission") or {}).get("sha256")
-        or picker_receipt.get("slug") != (run_state.get("oracle") or {}).get("slug")
-        or picker_receipt.get("requested") != expected_picker_request
-        or picker_receipt.get("stdout_path") != str(stdout_path)
-        or picker_receipt.get("stdout_sha256") != hashlib.sha256(stdout_bytes).hexdigest()
-        or picker_observed.get("model_row") != "Latest"
-        or picker_observed.get("model_row_checked") is not True
-        or picker_observed.get("thinking_time") != "pro"
-        or picker_observed.get("slider_ordinal") != 5
-        or picker_observed.get("slider_total") != 5
-        or picker_observed.get("displayed_effort") != "6 Pro"
-        or picker_observed.get("effort_checked") is not True
-        or picker_observed.get("log_line") not in allowed_profile_logs
-        or picker_observed.get("log_line") not in stdout_text.splitlines()
+        picker_proof is None
+        or picker_proof["payload"].get("schema") != ORACLE_STATE.PICKER_DOM_RECEIPT_SCHEMA
+        or picker_proof["payload"].get("requested") != ORACLE_STATE.current_browser_intent("pro")
+        or picker_proof["payload"].get("stdout_sha256") != hashlib.sha256(stdout_bytes).hexdigest()
+        or picker_proof["payload"].get("source_thread_id") != (source_thread_id or None)
     ):
         raise OnboardingError("FINAL_GATE_ORACLE_PICKER_RECEIPT_INVALID")
+    picker_path = Path(picker_proof["path"])
     try:
         output_path = Path(str(artifacts.get("output") or "")).expanduser().resolve(strict=True)
     except OSError as exc:
@@ -1170,7 +1125,7 @@ def _oracle_final_gate_binding(
         "observed_profile": "Latest / 6 Pro",
         "picker_profile_verified": True,
         "picker_profile_receipt_path": str(picker_path),
-        "picker_profile_receipt_sha256": hashlib.sha256(picker_bytes).hexdigest(),
+        "picker_profile_receipt_sha256": picker_proof["sha256"],
         "workspace_id": receipt_binding["workspace_id"],
         "conversation_scope_id": receipt_binding["conversation_scope_id"],
         "tool_read_receipts": receipt_binding["tool_read_receipts"],

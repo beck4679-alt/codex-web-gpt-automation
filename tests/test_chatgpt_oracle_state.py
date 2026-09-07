@@ -1428,12 +1428,8 @@ def test_picker_profile_receipt_requires_exact_requested_latest_effort_log(tmp_p
         "[browser] Thinking time: Latest / extra-high / 4 of 5 (Latest explicitly selected)\n",
         encoding="utf-8",
     )
-    captured = state.capture_picker_profile_receipt(layout.state_path)
-    assert captured is not None
-    assert captured["payload"]["verified"] is True
-    assert captured["payload"]["observed"]["model_row_checked"] is True
-    assert captured["payload"]["observed"]["effort_checked"] is True
-    assert state.proven_picker_profile_receipt(layout.state_path) is not None
+    assert state.capture_picker_profile_receipt(layout.state_path) is None
+    assert state.proven_picker_profile_receipt(layout.state_path) is None
 
 
 def test_current_pro_browser_intent_is_exact_and_selector_era_parse_stays_compatible(

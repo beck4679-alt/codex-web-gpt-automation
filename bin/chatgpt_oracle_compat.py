@@ -250,13 +250,16 @@ PATCHES = {
     "dist/src/browser/actions/thinkingTime.js": {
         "patch": "thinkingTime.gpt56-pro-power-slider.patch",
         "pristine": "3d9d06b08417bca3b2d646eb4d46887d26c5de7c068d1e995c73b6b6e2f61199",
-        "patched": "96062af32028119878570c5f3c81a01a5109576b6f2ebe51f30236385a96137c",
+        "patched": "43b866d19344f9e2a3e7cd9bdaac46faead998fbae978c1c63c6a3b183bd1af8",
         "legacy_patched": [
+            "96062af32028119878570c5f3c81a01a5109576b6f2ebe51f30236385a96137c",
             "1aa1a216f71e1213c2056efb0db4c4de7c2b2c505311e1be98c2b6a2784521dd",
             "978f754ba4011957790530474d27d629a8d353dd449f8e2636e02a9abd27b81a",
             "a19ce77fe57b4fa1a290e130da323377ed69b6e51b1ad133b1ab5355ead59345",
         ],
         "legacy_patches": {
+            "96062af32028119878570c5f3c81a01a5109576b6f2ebe51f30236385a96137c":
+                "thinkingTime.gpt56-pro-power-slider.pre-dom-proof.patch",
             "1aa1a216f71e1213c2056efb0db4c4de7c2b2c505311e1be98c2b6a2784521dd":
                 "thinkingTime.gpt56-pro-power-slider.pre-latest.patch",
             "a19ce77fe57b4fa1a290e130da323377ed69b6e51b1ad133b1ab5355ead59345":

@@ -1259,6 +1259,7 @@ def state_payload(
         "picker_profile": (
             {
                 "schema": PICKER_PROFILE_REFERENCE_SCHEMA,
+                "proof_schema": PICKER_DOM_PROOF_SCHEMA,
                 "requested": requested_picker,
                 "verified": False,
                 "receipt_path": None,
@@ -1896,6 +1897,99 @@ def capture_browser_identity_receipt(state_path: Path) -> dict[str, Any] | None:
     return {"path": str(receipt_path), "sha256": digest, "payload": receipt}
 
 
+
+PICKER_DOM_PROOF_SCHEMA = "codex.oracle.picker-dom-proof/v1"
+PICKER_DOM_LOG_PREFIX = "[browser] Picker DOM proof: "
+PICKER_DOM_RECEIPT_SCHEMA = "codex.chatgpt.oracle-picker-profile-receipt/v2"
+
+
+def _picker_compact(value: object) -> str:
+    return re.sub(r"[\s\u200b-\u200d\ufeff]+", "", value.casefold()) if isinstance(value, str) else ""
+
+
+def _picker_unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate picker field")
+        result[key] = value
+    return result
+
+
+def _observed_picker_from_stdout(stdout_text: str, requested: dict[str, Any]) -> dict[str, Any] | None:
+    """Validate raw browser observations; never turn a requested label into evidence."""
+    lines = [line for line in stdout_text.splitlines() if line.startswith(PICKER_DOM_LOG_PREFIX)]
+    if len(lines) != 1 or len(lines[0]) > 32768:
+        return None
+    try:
+        proof = json.loads(lines[0][len(PICKER_DOM_LOG_PREFIX):], object_pairs_hook=_picker_unique_object)
+        if not isinstance(proof, dict) or proof.get("schema") != PICKER_DOM_PROOF_SCHEMA:
+            return None
+        if proof.get("latestClicked") is not True or type(proof.get("stableReads")) is not int or proof["stableReads"] < 2:
+            return None
+        rows, composer, slider, signals = (proof.get(key) for key in ("modelRows", "composer", "slider", "modelSignals"))
+        if not isinstance(rows, list) or not rows or not all(isinstance(row, dict) for row in rows):
+            return None
+        checked = [row for row in rows if row.get("visible") is True and row.get("checked") == "true"]
+        if len(checked) != 1 or checked[0].get("role") != "menuitemradio" or checked[0].get("text", "").strip() not in {"Latest", "최신"}:
+            return None
+        if not isinstance(composer, dict) or composer.get("visible") is not True:
+            return None
+        if not any(_picker_compact(composer.get(key)) in {"thinkingeffort", "추론수준", "사고수준"} for key in ("text", "ariaLabel")):
+            return None
+        if not isinstance(slider, dict) or slider.get("visible") is not True:
+            return None
+        keys = ("minimum", "maximum", "current", "ordinal", "total", "displayOrdinal", "displayTotal")
+        if any(type(slider.get(key)) is not int for key in keys):
+            return None
+        ordinal, total = slider["current"] - slider["minimum"] + 1, slider["maximum"] - slider["minimum"] + 1
+        if not 1 <= ordinal <= total or total != 5:
+            return None
+        if (slider["ordinal"], slider["total"], slider["displayOrdinal"], slider["displayTotal"]) != (ordinal, total, ordinal, total):
+            return None
+        if slider.get("atMaximum") is not (ordinal == total):
+            return None
+        text = slider.get("text")
+        if not isinstance(text, str):
+            return None
+        position = re.search(r"(?:^|\s)(\d+)\s+of\s+(\d+)(?:\s|[.,]|$)", text)
+        korean = re.search(r"(\d+)개\s*중\s*(\d+)번째", text)
+        displayed = (int(position[1]), int(position[2])) if position else (int(korean[2]), int(korean[1])) if korean else None
+        if displayed != (ordinal, total):
+            return None
+        if ordinal != requested.get("slider_ordinal") or total != requested.get("slider_total"):
+            return None
+        if not isinstance(signals, list) or not all(isinstance(signal, dict) for signal in signals):
+            return None
+        pro_signals = [signal for signal in signals if signal.get("visible") is True
+                       and signal.get("role") in {"menuitem", "button"}
+                       and signal.get("expanded") in {"true", "false"}
+                       and _picker_compact(signal.get("text")) == "6pro"]
+        pro_signal = _picker_compact(composer.get("text")) == "6pro" or len(pro_signals) == 1
+        if ordinal == 5:
+            if not re.search(r"\bpro\b", text, re.I) or not pro_signal:
+                return None
+        elif re.search(r"\bpro\b", text, re.I):
+            return None
+        effort = next((name for name, ui in CURRENT_EFFORT_UI.items() if ui[0] == ordinal), None)
+        if effort != requested.get("thinking_time"):
+            return None
+        return {
+            "model_row": checked[0]["text"].strip(),
+            "model_row_checked": True,
+            "thinking_time": effort,
+            "slider_ordinal": ordinal,
+            "slider_total": total,
+            "displayed_effort": CURRENT_EFFORT_UI[effort][1],
+            "effort_checked": True,
+            "dom_proof": proof,
+            "log_line": lines[0],
+            "log_line_sha256": hashlib.sha256(lines[0].encode("utf-8")).hexdigest(),
+        }
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return None
+
+
 def _picker_profile_log_line(intent: dict[str, Any]) -> str:
     return (
         "[browser] Thinking time: Latest / "
@@ -1918,6 +2012,7 @@ def proven_picker_profile_receipt(state_path: Path) -> dict[str, Any] | None:
     if (
         reference.get("schema") != PICKER_PROFILE_REFERENCE_SCHEMA
         or reference.get("verified") is not True
+        or expected_requested is None
         or requested != expected_requested
         or path.is_symlink()
     ):
@@ -1929,18 +2024,28 @@ def proven_picker_profile_receipt(state_path: Path) -> dict[str, Any] | None:
         stdout_path = exact_regular_file(
             (state.get("artifacts") or {}).get("stdout"), label="picker_profile_stdout"
         )
+        if not is_within(state_path.parent.resolve(), stdout_path):
+            return None
         stdout_raw = stdout_path.read_bytes()
         stdout_text = stdout_raw.decode("utf-8", errors="strict")
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, OracleStateError):
         return None
+    if not isinstance(receipt, dict):
+        return None
     actual = hashlib.sha256(raw).hexdigest()
+    structured = receipt.get("schema") == PICKER_DOM_RECEIPT_SCHEMA
+    if reference.get("proof_schema") == PICKER_DOM_PROOF_SCHEMA and not structured:
+        return None
+    parsed_observed = _observed_picker_from_stdout(stdout_text, requested) if structured else None
+    if structured and (parsed_observed is None or receipt.get("observed") != parsed_observed):
+        return None
     expected_log = _picker_profile_log_line(requested)
     allowed_logs = {expected_log, f"{expected_log} (already selected)"}
     observed = receipt.get("observed") if isinstance(receipt.get("observed"), dict) else {}
     ownership = state.get("ownership") if isinstance(state.get("ownership"), dict) else {}
     if (
         not isinstance(receipt, dict)
-        or receipt.get("schema") != PICKER_PROFILE_RECEIPT_SCHEMA
+        or receipt.get("schema") not in {PICKER_PROFILE_RECEIPT_SCHEMA, PICKER_DOM_RECEIPT_SCHEMA}
         or receipt.get("verified") is not True
         or reference.get("receipt_path") != str(path)
         or reference.get("receipt_sha256") != actual
@@ -1952,9 +2057,9 @@ def proven_picker_profile_receipt(state_path: Path) -> dict[str, Any] | None:
         or receipt.get("requested") != requested
         or receipt.get("stdout_path") != str(stdout_path)
         or receipt.get("stdout_sha256") != hashlib.sha256(stdout_raw).hexdigest()
-        or observed.get("log_line") not in allowed_logs
+        or (not structured and observed.get("log_line") not in allowed_logs)
         or observed.get("log_line") not in stdout_text.splitlines()
-        or observed.get("model_row") != "Latest"
+        or observed.get("model_row") not in ({"Latest", "최신"} if structured else {"Latest"})
         or observed.get("model_row_checked") is not True
         or observed.get("thinking_time") != requested.get("thinking_time")
         or observed.get("slider_ordinal") != requested.get("slider_ordinal")
@@ -1989,14 +2094,14 @@ def capture_picker_profile_receipt(state_path: Path) -> dict[str, Any] | None:
         stdout_text = stdout_raw.decode("utf-8", errors="strict")
     except (OSError, UnicodeDecodeError, OracleStateError):
         return None
-    expected_log = _picker_profile_log_line(requested)
-    allowed_logs = {expected_log, f"{expected_log} (already selected)"}
-    matches = [line for line in stdout_text.splitlines() if line in allowed_logs]
-    if len(matches) != 1:
+    observed = _observed_picker_from_stdout(stdout_text, requested)
+    profile = state.get("profile") or {}
+    expected = current_browser_intent(profile.get("thinking_time"))
+    if observed is None or requested != expected or profile.get("model_strategy") != "current" or profile.get("model") != "gpt-5.6-sol":
         return None
     ownership = state.get("ownership") if isinstance(state.get("ownership"), dict) else {}
     receipt = {
-        "schema": PICKER_PROFILE_RECEIPT_SCHEMA,
+        "schema": PICKER_DOM_RECEIPT_SCHEMA,
         "verified": True,
         "source_thread_id": source_thread_id_from_state(state),
         "project_root_sha256": ownership.get("project_root_sha256"),
@@ -2004,16 +2109,7 @@ def capture_picker_profile_receipt(state_path: Path) -> dict[str, Any] | None:
         "mission_sha256": (state.get("mission") or {}).get("sha256"),
         "slug": (state.get("oracle") or {}).get("slug"),
         "requested": requested,
-        "observed": {
-            "model_row": "Latest",
-            "model_row_checked": True,
-            "thinking_time": requested.get("thinking_time"),
-            "slider_ordinal": requested.get("slider_ordinal"),
-            "slider_total": requested.get("slider_total"),
-            "displayed_effort": requested.get("displayed_effort"),
-            "effort_checked": True,
-            "log_line": matches[0],
-        },
+        "observed": observed,
         "stdout_path": str(stdout_path),
         "stdout_sha256": hashlib.sha256(stdout_raw).hexdigest(),
         "created_at": datetime.now(timezone.utc).isoformat(),

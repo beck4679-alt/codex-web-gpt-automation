@@ -781,11 +781,15 @@ const runCase = async ({{rangeFixture = fixture, validModel = true, controlledFr
     dispatchEvent: () => true,
   }};
   const logs = [];
+  const domProofs = [];
   const Runtime = {{evaluate: async ({{expression}}) => ({{result: {{value: await eval(expression)}}}})}};
   try {{
     if (splitCurrentPicker) pill.attrs['aria-controls'] = 'split-current-picker';
-    await ensureThinkingTime(Runtime, level, (message) => logs.push(message), latest ? null : 'gpt-5.6-sol');
-    return {{ok: true, logs, rawValue, ordinal: ordinal(), keydowns,
+    await ensureThinkingTime(Runtime, level, (message) => {{
+      if (message.startsWith('[browser] Picker DOM proof: ')) domProofs.push(JSON.parse(message.slice('[browser] Picker DOM proof: '.length)));
+      else logs.push(message);
+    }}, latest ? null : 'gpt-5.6-sol');
+    return {{ok: true, logs, domProofs, rawValue, ordinal: ordinal(), keydowns,
       ...(latest ? {{latestClicks, modelToggleClicks}} : {{}})}};
   }} catch (error) {{
     return {{ok: false, message: error.message, logs, rawValue, ordinal: ordinal(), keydowns}};
@@ -832,9 +836,35 @@ console.log(JSON.stringify({{
         text=True,
         check=False,
         timeout=30,
+        encoding="utf-8",
     )
     assert completed.returncode == 0, completed.stderr
     result = json.loads(completed.stdout)
+    for case, outcome in result.items():
+        proofs = outcome.pop('domProofs', [])
+        if outcome['ok'] and case.startswith('latest'):
+            assert len(proofs) == 1, case
+            proof = proofs[0]
+            assert proof['schema'] == 'codex.oracle.picker-dom-proof/v1'
+            assert proof['latestClicked'] is True
+            assert proof['stableReads'] >= 2
+            assert proof['slider']['ordinal'] == outcome['ordinal']
+            assert proof['slider']['current'] == outcome['rawValue']
+            assert [row['text'] for row in proof['modelRows'] if row['checked'] == 'true'] == [('최신' if 'Korean' in case else 'Latest')]
+            if case == 'latestSplitProOpen':
+                assert proof['composer']['text'] == 'Thinking effort'
+                assert proof['modelSignals'][0]['text'] == '6Pro'
+                assert proof['slider']['displayOrdinal'] == 5
+                from test_chatgpt_oracle_state import load_state
+                state = load_state()
+                parsed = state._observed_picker_from_stdout(
+                    state.PICKER_DOM_LOG_PREFIX + json.dumps(proof),
+                    state.current_browser_intent('pro'),
+                )
+                assert parsed is not None
+                assert parsed['dom_proof'] == proof
+        else:
+            assert proofs == [], case
     for case in ('latestFrom56', 'latestKoreanFrom56'):
         assert result[case]['ok'] is True, result[case]
         assert result[case]['latestClicks'] == 1
@@ -928,6 +958,7 @@ def test_published_0180_pro_power_slider_migrates_known_exact_bytes(
     contract = compat.PATCHES[relative]
     legacy_hashes = list(contract["legacy_patched"])
     assert legacy_hashes == [
+        "96062af32028119878570c5f3c81a01a5109576b6f2ebe51f30236385a96137c",
         "1aa1a216f71e1213c2056efb0db4c4de7c2b2c505311e1be98c2b6a2784521dd",
         "978f754ba4011957790530474d27d629a8d353dd449f8e2636e02a9abd27b81a",
         "a19ce77fe57b4fa1a290e130da323377ed69b6e51b1ad133b1ab5355ead59345",
@@ -936,8 +967,9 @@ def test_published_0180_pro_power_slider_migrates_known_exact_bytes(
         legacy_hash: str(contract.get("legacy_patches", {}).get(legacy_hash) or contract["legacy_patch"])
         for legacy_hash in legacy_hashes
     }
-    assert legacy_patches[legacy_hashes[0]] == "thinkingTime.gpt56-pro-power-slider.pre-latest.patch"
-    assert legacy_patches[legacy_hashes[2]] == (
+    assert legacy_patches[legacy_hashes[0]] == "thinkingTime.gpt56-pro-power-slider.pre-dom-proof.patch"
+    assert legacy_patches[legacy_hashes[1]] == "thinkingTime.gpt56-pro-power-slider.pre-latest.patch"
+    assert legacy_patches[legacy_hashes[3]] == (
         "thinkingTime.gpt56-pro-power-slider.pre-aria-range.patch"
     )
 

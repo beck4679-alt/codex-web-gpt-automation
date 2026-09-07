@@ -1,32 +1,25 @@
 diff --git a/dist/src/browser/actions/thinkingTime.js b/dist/src/browser/actions/thinkingTime.js
 --- a/dist/src/browser/actions/thinkingTime.js
 +++ b/dist/src/browser/actions/thinkingTime.js
-@@ -65,9 +65,12 @@
+@@ -65,4 +65,5 @@
      const strictProEffort = level === "pro" ||
 +        (desiredModel == null && ['light', 'standard', 'extended', 'extra-high'].includes(level)) ||
          ((targetModelKind === "pro" || observedModelKind === "pro") && level === "extended");
      switch (result?.status) {
          case "already-selected":
-             logger(formatBrowserThinkingLog(`${result.label ?? capitalizedLevel} (already selected)`));
-+            if (result.observedPicker) logger("[browser] Picker DOM proof: " + JSON.stringify(result.observedPicker));
-             return;
-         case "switched":
-             logger(formatBrowserThinkingLog(result.label ?? capitalizedLevel));
-+            if (result.observedPicker) logger("[browser] Picker DOM proof: " + JSON.stringify(result.observedPicker));
-             return;
-@@ -100,4 +103,4 @@
+@@ -100,4 +101,4 @@
              if (strictProEffort) {
 -                const target = level === "pro" ? "Pro" : "Pro Extended";
 +                const target = desiredModel == null ? capitalizedLevel : level === "pro" ? "Pro" : "Pro Extended";
                  throw new Error(`${message}; refusing to submit without confirmed ${target}.`);
              }
-@@ -116,4 +119,4 @@
+@@ -116,4 +117,4 @@
              if (strictProEffort) {
 -                const target = level === "pro" ? "Pro" : "Pro Extended";
 +                const target = desiredModel == null ? capitalizedLevel : level === "pro" ? "Pro" : "Pro Extended";
                  throw new Error(`Thinking time: unknown outcome selecting ${capitalizedLevel}; refusing to submit without confirmed ${target}.`);
              }
-@@ -849,6 +852,297 @@ function buildThinkingTimeExpression(level, desiredModel) {
+@@ -849,6 +850,273 @@ function buildThinkingTimeExpression(level, desiredModel) {
        'effort', 'aufwand', '强度', '努力', '推論レベル',
        'esfuerzo', 'esforco', 'sforzo', 'inspanning', 'wysilek',
      ];
@@ -160,26 +153,6 @@ diff --git a/dist/src/browser/actions/thinkingTime.js b/dist/src/browser/actions
 +      } : null,
 +      exact: Boolean(proof?.exact),
 +    });
-+    const snapshotPickerNode = (node) => ({
-+      text: String(node?.textContent ?? '').slice(0, 512),
-+      ariaLabel: node?.getAttribute?.('aria-label') ?? null,
-+      role: node?.getAttribute?.('role') ?? null,
-+      checked: node?.getAttribute?.('aria-checked') ?? null,
-+      expanded: node?.getAttribute?.('aria-expanded') ?? null,
-+      visible: isVisible(node),
-+    });
-+    const observedPickerSnapshot = (proof, latestClicked, stableReads) => ({
-+      schema: 'codex.oracle.picker-dom-proof/v1',
-+      latestClicked,
-+      stableReads,
-+      modelRows: visibleCurrentModelRows(proof.menu).map(snapshotPickerNode),
-+      composer: snapshotPickerNode(findComposerEffortPill()),
-+      modelSignals: Array.from(proof.menu?.querySelectorAll?.('[role="menuitem"], button') ?? [])
-+        .filter((item) => isVisible(item) && ['true', 'false'].includes(item.getAttribute?.('aria-expanded')))
-+        .map(snapshotPickerNode),
-+      slider: { ...powerProofEvidence(proof).range, text: String(proof.view?.textContent ?? '').slice(0, 512),
-+        visible: isVisible(proof.view) },
-+    });
 +    const exactGpt56ProPowerProof = (menu) => evaluateGpt56ProPowerProof(menu).exact;
 +    const selectGpt56ProPowerSlider = async (trigger, initialMenu) => {
 +      if (!(TARGET_IS_CURRENT ? LATEST_ORDINAL : TARGET_IS_GPT56_MODEL && TARGET_LEVEL === 'pro')) return null;
@@ -243,7 +216,7 @@ diff --git a/dist/src/browser/actions/thinkingTime.js b/dist/src/browser/actions
 +            readyConsecutive = stable ? readyConsecutive + 1 : 1;
 +            lastMenu = proof.menu;
 +            lastCurrent = proof.power.current;
-+            if (readyConsecutive >= 2) return { status: 'ready', proof, stableReads: readyConsecutive };
++            if (readyConsecutive >= 2) return { status: 'ready', proof };
 +          } else {
 +            readyConsecutive = 0;
 +            lastMenu = null;
@@ -261,10 +234,8 @@ diff --git a/dist/src/browser/actions/thinkingTime.js b/dist/src/browser/actions
 +      }
 +      let proof = readiness.proof;
 +      if (proof.exact) {
-+        const observedPicker = TARGET_IS_CURRENT && latestSelectionDispatched ? observedPickerSnapshot(proof, latestSelectionDispatched, readiness.stableReads) : null;
 +        closeOpenMenus();
 +        return {
-+          observedPicker,
 +          status: 'already-selected', label: TARGET_IS_CURRENT ? LATEST_SELECTION_LABEL : 'Pro, 5 of 5',
 +          powerEvidence: powerProofEvidence(proof),
 +        };
@@ -305,10 +276,8 @@ diff --git a/dist/src/browser/actions/thinkingTime.js b/dist/src/browser/actions
 +        proof = evaluateGpt56ProPowerProof(currentMenu());
 +        consecutive = proof.exact ? consecutive + 1 : 0;
 +        if (consecutive >= 2) {
-+          const observedPicker = TARGET_IS_CURRENT && latestSelectionDispatched ? observedPickerSnapshot(proof, latestSelectionDispatched, consecutive) : null;
 +          closeOpenMenus();
 +          return {
-+            observedPicker,
 +            status: 'switched', label: TARGET_IS_CURRENT ? LATEST_SELECTION_LABEL : 'Pro, 5 of 5',
 +            powerEvidence: powerProofEvidence(proof),
 +          };
@@ -324,7 +293,7 @@ diff --git a/dist/src/browser/actions/thinkingTime.js b/dist/src/browser/actions
      const containsAny = (label, words) => words.some((word) => label.includes(word));
      const findAdvancedToggle = (menu) => {
        for (const item of (menu || document).querySelectorAll('[role="menuitem"]')) {
-@@ -970,6 +1264,7 @@ function buildThinkingTimeExpression(level, desiredModel) {
+@@ -970,6 +1238,7 @@ function buildThinkingTimeExpression(level, desiredModel) {
              (TARGET_MODEL_KIND === 'pro' && hasToken(label, 'pro') && !hasToken(label, 'thinking')) ||
              (TARGET_MODEL_KIND === 'thinking' && hasToken(label, 'thinking') && !hasToken(label, 'pro')) ||
              (!TARGET_MODEL_KIND && hasToken(label, 'thinking')) ||
@@ -332,7 +301,7 @@ diff --git a/dist/src/browser/actions/thinkingTime.js b/dist/src/browser/actions
              (button.matches?.('button.__composer-pill') && matchesAnyEffortLevel(label))
            ) {
              return button;
-@@ -1069,6 +1364,13 @@ function buildThinkingTimeExpression(level, desiredModel) {
+@@ -1069,6 +1338,13 @@ function buildThinkingTimeExpression(level, desiredModel) {
        while (performance.now() < deadline) {
          const menu = findVisibleEffortMenu(composerEffortPill);
          if (menu) {

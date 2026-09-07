@@ -166,7 +166,7 @@ def pro_devspace_composer_handoff(mission_path: str | Path, app_name: str | None
         "Use only the exact project root recorded there; read the mission and applicable AGENTS.md fully first. "
         "Inspect and reason over project evidence without creating, editing, deleting, or renaming files and without "
         "running commands or changing settings, accounts, or external state. If the requested task requires writes or "
-        "commands, return an implementation-ready handoff for a separate regular GPT-5.6 extra-high DevSpace stage."
+        "commands, return an implementation-ready handoff for native Sol (gpt-5.6-sol) implementation."
     )
 
 
@@ -268,7 +268,7 @@ def build_launch_contract(
             "thinking_time": PRO_THINKING_TIME,
             "browser_intent": _browser_intent(PRO_THINKING_TIME),
             "action_authority": "read-only",
-            "write_handoff": "regular-gpt-5.6-extra-high-devspace",
+            "write_handoff": "native-gpt-5.6-sol",
             "mission_path": str(mission),
             "composer_prompt": pro_devspace_composer_handoff(mission, resolved_app_name),
         })

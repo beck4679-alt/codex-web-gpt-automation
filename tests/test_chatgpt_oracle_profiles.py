@@ -163,10 +163,10 @@ def test_pro_is_explicit_readonly_devspace_without_attachments(tmp_path: Path) -
     assert contract["research"] is False
     assert contract["attachments"] == []
     assert contract["action_authority"] == "read-only"
-    assert contract["write_handoff"] == "regular-gpt-5.6-extra-high-devspace"
+    assert contract["write_handoff"] == "native-gpt-5.6-sol"
     assert contract["composer_prompt"].startswith(f"@DevSpace Read and analyze the read-only mission file: {mission}.")
     assert "without creating, editing, deleting, or renaming files" in contract["composer_prompt"]
-    assert "separate regular GPT-5.6 extra-high DevSpace stage" in contract["composer_prompt"]
+    assert "native Sol (gpt-5.6-sol) implementation" in contract["composer_prompt"]
     with pytest.raises(profiles.OracleProfileError) as exc:
         profiles.build_launch_contract("pro", mission_path=mission, attachment_paths=[mission])
     assert exc.value.code == "PRO_DEVSPACE_ATTACHMENTS_FORBIDDEN"

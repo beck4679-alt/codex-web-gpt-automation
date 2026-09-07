@@ -150,6 +150,9 @@ def test_pro_defaults_to_devspace_without_attachments(tmp_path: Path) -> None:
 
     value = json.loads(target.read_text(encoding="utf-8"))
     assert result["contract"]["route"] == "oracle-pro-devspace-readonly"
+    assert result["contract"]["write_handoff"] == "native-gpt-5.6-sol"
+    assert "native Sol (gpt-5.6-sol) implementation" in result["contract"]["composer_prompt"]
+    assert result["contract"]["action_authority"] == "read-only"
     assert value["transport"] == "pro-devspace-readonly"
     assert value["app_name"] == "DevSpace"
     assert value["model"] == "gpt-5.6-sol"

@@ -559,10 +559,14 @@ def _bound_final_gate_run(
         encoding="utf-8",
     )
     output_sha256 = hashlib.sha256(output.read_bytes()).hexdigest()
+    from test_oracle_picker_dom_receipt import observed_proof
+    from test_chatgpt_oracle_state import load_state
+    picker_state = load_state()
+    proof_line = picker_state.PICKER_DOM_LOG_PREFIX + json.dumps(observed_proof())
     stdout = run_dir / "stdout.log"
     stdout.write_text(
         (
-            "[browser] Thinking time: Latest / 6 Pro (Latest explicitly selected)\n"
+            "[browser] Thinking time: Latest / 6 Pro (Latest explicitly selected)\n" + proof_line + "\n"
             if profile_proof
             else "[browser] Thinking time: Pro\n"
         ),
@@ -580,24 +584,15 @@ def _bound_final_gate_run(
     }
     picker_path = run_dir / "picker-profile-receipt.json"
     picker_receipt = {
-        "schema": "codex.chatgpt.oracle-picker-profile-receipt/v1",
+        "schema": "codex.chatgpt.oracle-picker-profile-receipt/v2",
         "verified": True,
-        "source_thread_id": source_thread_id or "",
+        "source_thread_id": source_thread_id or None,
         "project_root_sha256": None,
         "run_id": "f" * 32,
         "mission_sha256": mission_sha256,
         "slug": "oracle-onboarding-final",
         "requested": picker_intent,
-        "observed": {
-            "model_row": "Latest",
-            "model_row_checked": True,
-            "thinking_time": "pro",
-            "slider_ordinal": 5,
-            "slider_total": 5,
-            "displayed_effort": "6 Pro",
-            "effort_checked": True,
-            "log_line": "[browser] Thinking time: Latest / 6 Pro (Latest explicitly selected)",
-        },
+        "observed": picker_state._observed_picker_from_stdout(proof_line, picker_intent),
         "stdout_path": str(stdout.resolve()),
         "stdout_sha256": hashlib.sha256(stdout.read_bytes()).hexdigest(),
     }
@@ -627,6 +622,7 @@ def _bound_final_gate_run(
         "artifacts": {"output": str(output.resolve()), "stdout": str(stdout.resolve())},
         "picker_profile": {
             "schema": "codex.chatgpt.oracle-picker-profile-reference/v1",
+            "proof_schema": picker_state.PICKER_DOM_PROOF_SCHEMA,
             "requested": picker_intent,
             "verified": True,
             "receipt_path": str(picker_path.resolve()),
@@ -638,7 +634,8 @@ def _bound_final_gate_run(
                 "ownership": {
                     "schema": "codex.chatgpt.oracle-ownership/v1",
                     "source_thread_id": source_thread_id,
-                }
+                },
+                "originating_task": {"source_thread_id": source_thread_id},
             }
             if source_thread_id
             else {}
@@ -917,6 +914,52 @@ def test_final_gate_rejects_requested_profile_without_observed_latest_pro_log(
 def test_final_gate_profile_proof_accepts_only_exact_success_log_variants(line: str) -> None:
     assert module.FINAL_GATE_PROFILE_PROOF_RE.fullmatch(line)
     assert not module.FINAL_GATE_PROFILE_PROOF_RE.fullmatch(line.replace("Latest", "GPT-5.6", 1))
+
+
+
+
+@pytest.mark.parametrize("mutation", ["legacy-v1", "wrong-model", "wrong-slider", "human-only"])
+def test_final_gate_rejects_rehashed_nonqualifying_picker_proof(tmp_path: Path, mutation: str) -> None:
+    environment = _wizard_environment(tmp_path, ready=True)
+    run_dir = _bound_final_gate_run(environment, ["AGENTS.md"])
+    state_path = run_dir / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    receipt_path = run_dir / "picker-profile-receipt.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    stdout = run_dir / "stdout.log"
+    human = "[browser] Thinking time: Latest / 6 Pro (Latest explicitly selected)"
+    if mutation == "legacy-v1":
+        receipt["schema"] = "codex.chatgpt.oracle-picker-profile-receipt/v1"
+        state["picker_profile"].pop("proof_schema")
+        receipt["observed"].pop("dom_proof")
+        receipt["observed"].pop("log_line_sha256")
+        receipt["observed"]["log_line"] = human
+        stdout.write_text(human + "\n", encoding="utf-8")
+    elif mutation == "human-only":
+        stdout.write_text(human + "\n", encoding="utf-8")
+    else:
+        proof = receipt["observed"]["dom_proof"]
+        if mutation == "wrong-model":
+            proof["modelSignals"][0]["text"] = "5.6Pro"
+        else:
+            proof["slider"]["current"] = 3
+        line = module.ORACLE_STATE.PICKER_DOM_LOG_PREFIX + json.dumps(proof)
+        receipt["observed"]["log_line"] = line
+        receipt["observed"]["log_line_sha256"] = hashlib.sha256(line.encode()).hexdigest()
+        stdout.write_text(human + "\n" + line + "\n", encoding="utf-8")
+    receipt["stdout_sha256"] = hashlib.sha256(stdout.read_bytes()).hexdigest()
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    state["picker_profile"]["receipt_sha256"] = hashlib.sha256(receipt_path.read_bytes()).hexdigest()
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+    with pytest.raises(module.OnboardingError, match="FINAL_GATE_ORACLE_PICKER_RECEIPT_INVALID"):
+        module._oracle_final_gate_binding(
+            codex_home=Path(environment["codex_home"]),
+            devspace_home=Path(environment["devspace_home"]),
+            run_dir=run_dir,
+            expected_root=str(environment["project"]),
+            expected_app_name="codex",
+            listing=["AGENTS.md"],
+        )
 
 
 def test_final_gate_rejects_self_authored_open_output_without_receipts(tmp_path: Path) -> None:
