@@ -21,6 +21,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 FAST_TARGETS = [
+    "tests/test_chatgpt_oracle_execute.py",
+    "tests/test_chatgpt_oracle_dispatch.py",
     "tests/test_chatgpt_oracle_state.py",
     # The full runner module now contains hundreds of exhaustive lifecycle
     # contradiction permutations and takes about 65 seconds by itself.  Keep a
@@ -111,8 +113,15 @@ def run_fast_gate(*, budget_seconds: float = DEFAULT_BUDGET_SECONDS) -> dict[str
             cwd=str(ROOT),
             check=False,
             env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
             **_hidden_process_kwargs(),
         )
+        if completed.stdout:
+            print(completed.stdout, end="", flush=True)
         elapsed = time.monotonic() - started
     return {
         "exit_code": int(completed.returncode),

@@ -152,6 +152,31 @@ def manifest_files(repo_root: Path, *, include_local_multi_gpt: bool = False) ->
     return sorted(result)
 
 
+def manifest_retirements(repo_root: Path) -> list[str]:
+    manifest = json.loads((repo_root / "install-manifest.json").read_text(encoding="utf-8"))
+    retire = manifest.get("retire") or {}
+    if not isinstance(retire, dict):
+        raise LifecycleError("manifest retire must be an object")
+    paths = retire.get("receipt_owned_files") or []
+    if not isinstance(paths, list):
+        raise LifecycleError("manifest retire.receipt_owned_files must be an array")
+    result: set[str] = set()
+    for value in paths:
+        if not isinstance(value, str) or not value or "\\" in value:
+            raise LifecycleError(f"invalid retirement path: {value}")
+        path = Path(value)
+        if (
+            path.is_absolute()
+            or any(part in {"", ".", ".."} for part in path.parts)
+            or any(character in value for character in "*?[]")
+            or not path.parts
+            or path.parts[0] not in SUPPORTED_ROOTS
+        ):
+            raise LifecycleError(f"unsafe retirement path: {value}")
+        result.add(path.as_posix())
+    return sorted(result)
+
+
 def _read_json(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8-sig"))
@@ -169,6 +194,60 @@ def _active_wals(codex_home: Path) -> Iterable[Path]:
     return sorted(backup_root.glob("**/install.wal.json"))
 
 
+def _receipt_owned_hashes(codex_home: Path, wanted: set[str]) -> dict[str, dict[str, str]]:
+    owned: dict[str, dict[str, str]] = {relative: {} for relative in wanted}
+    receipt_root = codex_home / "receipts"
+    if not receipt_root.is_dir():
+        return owned
+    for receipt_path in sorted(receipt_root.glob("codexpro-automation-*.json"), reverse=True):
+        if receipt_path.is_symlink():
+            continue
+        try:
+            receipt = _read_json(receipt_path)
+        except LifecycleError:
+            continue
+        if receipt.get("schema") not in {"codexpro.install-receipt/v2", RECEIPT_SCHEMA}:
+            continue
+        backup_text = str(receipt.get("backup") or "")
+        try:
+            backup_root = Path(backup_text).expanduser().resolve()
+        except OSError:
+            continue
+        if not _is_within((codex_home / "backups").resolve(), backup_root):
+            continue
+        for record in receipt.get("files") or []:
+            if not isinstance(record, dict) or record.get("action") not in {"created", "overwritten"}:
+                continue
+            relative = str(record.get("path") or "")
+            digest = str(record.get("installed_sha256") or "").lower()
+            if relative in owned and len(digest) == 64 and all(character in "0123456789abcdef" for character in digest):
+                owned[relative].setdefault(digest, str(receipt_path))
+    return owned
+
+
+def plan_retirements(codex_home: Path, paths: Sequence[str]) -> list[dict[str, str]]:
+    wanted = set(paths)
+    owned = _receipt_owned_hashes(codex_home, wanted)
+    planned: list[dict[str, str]] = []
+    conflicts: list[dict[str, str]] = []
+    for relative in sorted(wanted):
+        destination = safe_child(codex_home, relative)
+        if not destination.exists():
+            continue
+        if not destination.is_file():
+            conflicts.append({"path": relative, "action": "preserved_non_file_retirement_target"})
+            continue
+        actual = sha256_file(destination)
+        source_receipt = owned[relative].get(actual)
+        if source_receipt is None:
+            conflicts.append({"path": relative, "action": "preserved_unowned_or_modified_retirement_target"})
+            continue
+        planned.append({"path": relative, "retired_sha256": actual, "source_receipt": source_receipt})
+    if conflicts:
+        raise LifecycleError("RETIREMENT_CONFLICT: " + json.dumps(conflicts, separators=(",", ":")))
+    return planned
+
+
 def recover_pending_installs(codex_home: Path) -> list[str]:
     recovered: list[str] = []
     for wal_path in _active_wals(codex_home):
@@ -179,9 +258,37 @@ def recover_pending_installs(codex_home: Path) -> list[str]:
         if not _is_within((codex_home / "backups").resolve(), backup):
             raise LifecycleError("interrupted install backup escapes CODEX_HOME")
         conflicts: list[str] = []
+        for entry in wal.get("files") or []:
+            if entry.get("action") != "retired":
+                continue
+            relative = str(entry.get("path") or "")
+            destination = safe_child(codex_home, relative)
+            retired_hash = str(entry.get("retired_sha256") or entry.get("installed_sha256") or "")
+            if destination.exists():
+                if not destination.is_file() or sha256_file(destination) != retired_hash:
+                    conflicts.append(relative)
+                continue
+            source = safe_child(backup, relative)
+            if not source.is_file() or sha256_file(source) != entry.get("backup_sha256"):
+                conflicts.append(relative)
+        if conflicts:
+            raise LifecycleError(f"INSTALL_CRASH_RECOVERY_CONFLICT: {','.join(conflicts)}")
         for entry in reversed(list(wal.get("files") or [])):
             relative = str(entry.get("path") or "")
             destination = safe_child(codex_home, relative)
+            if entry.get("action") == "retired":
+                retired_hash = str(entry.get("retired_sha256") or entry.get("installed_sha256") or "")
+                if destination.exists():
+                    if destination.is_file() and sha256_file(destination) == retired_hash:
+                        continue
+                    conflicts.append(relative)
+                    continue
+                source = safe_child(backup, relative)
+                if not source.is_file() or sha256_file(source) != entry.get("backup_sha256"):
+                    conflicts.append(relative)
+                    continue
+                _copy_file_atomic(source, destination)
+                continue
             installed_hash = str(entry.get("installed_sha256") or "")
             if not destination.exists():
                 continue
@@ -212,10 +319,16 @@ def install(repo_root: Path, codex_home: Path, *, dry_run: bool = False, local_m
     repo_root = repo_root.resolve()
     codex_home = codex_home.expanduser().resolve()
     files = manifest_files(repo_root, include_local_multi_gpt=local_multi_gpt)
+    retirement_paths = manifest_retirements(repo_root)
+    overlap = sorted(set(files) & set(retirement_paths))
+    if overlap:
+        raise LifecycleError("manifest installs and retires the same path: " + ",".join(overlap))
     if dry_run:
-        return {"ok": True, "action": "install-plan", "codex_home": str(codex_home), "files": files}
+        retirements = plan_retirements(codex_home, retirement_paths)
+        return {"ok": True, "action": "install-plan", "codex_home": str(codex_home), "files": files, "retirements": retirements}
     codex_home.mkdir(parents=True, exist_ok=True)
     recovered = recover_pending_installs(codex_home)
+    retirements = plan_retirements(codex_home, retirement_paths)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S%f")
     nonce = uuid.uuid4().hex
     backup_root = codex_home / "backups" / f"codexpro-automation-{stamp}-{nonce}"
@@ -283,6 +396,51 @@ def install(repo_root: Path, codex_home: Path, *, dry_run: bool = False, local_m
                 entry["transitions"].append("COMPLETE")
                 _write_json_atomic(wal_path, wal)
                 records.append({key: entry[key] for key in ("path", "action", "installed_sha256", "backup_sha256")})
+            for retirement in retirements:
+                relative = retirement["path"]
+                destination = safe_child(codex_home, relative)
+                retired_hash = retirement["retired_sha256"]
+                if not destination.is_file() or sha256_file(destination) != retired_hash:
+                    raise LifecycleError(f"RETIREMENT_CONFLICT: changed during install: {relative}")
+                backup = safe_child(backup_root, relative)
+                _copy_file_atomic(destination, backup)
+                backup_hash = sha256_file(backup)
+                replacement_path = backup_root / "steps" / str(len(wal["files"])) / "replacement.json"
+                entry = {
+                    "path": relative,
+                    "action": "retired",
+                    "installed_sha256": retired_hash,
+                    "retired_sha256": retired_hash,
+                    "backup_sha256": backup_hash,
+                    "source_receipt": retirement["source_receipt"],
+                    "phase": "INTENT",
+                    "transitions": ["INTENT"],
+                    "replacement": str(replacement_path),
+                }
+                wal["files"].append(entry)
+                _write_json_atomic(wal_path, wal)
+                receipt_record = {
+                    key: entry[key]
+                    for key in ("path", "action", "installed_sha256", "retired_sha256", "backup_sha256", "source_receipt")
+                }
+                records.append(receipt_record)
+                destination.unlink()
+                entry["phase"] = "MUTATED"
+                entry["transitions"].append("MUTATED")
+                _write_json_atomic(wal_path, wal)
+                _write_json_atomic(replacement_path, {
+                    "schema": "codexpro.install-replacement/v1",
+                    **receipt_record,
+                    "mutated_at": utc_now(),
+                })
+                if destination.exists():
+                    raise LifecycleError(f"retirement verification failed: {relative}")
+                entry["phase"] = "VERIFIED"
+                entry["transitions"].append("VERIFIED")
+                _write_json_atomic(wal_path, wal)
+                entry["phase"] = "COMPLETE"
+                entry["transitions"].append("COMPLETE")
+                _write_json_atomic(wal_path, wal)
         except Exception:
             _rollback_records(codex_home, backup_root, records)
             raise
@@ -334,14 +492,43 @@ def install(repo_root: Path, codex_home: Path, *, dry_run: bool = False, local_m
         wal["status"] = "ROLLED_BACK_AFTER_FAILURE"
         _write_json_atomic(wal_path, wal)
         raise
-    return {"ok": True, "action": "installed", "count": len(records), "receipt": str(receipt_path), "recovered": recovered}
+    return {"ok": True, "action": "installed", "count": len(records), "retired": [item["path"] for item in retirements], "receipt": str(receipt_path), "recovered": recovered}
 
 
 def _rollback_records(codex_home: Path, backup_root: Path, records: Iterable[dict[str, Any]]) -> list[dict[str, str]]:
+    records = list(records)
     conflicts: list[dict[str, str]] = []
-    for record in reversed(list(records)):
+    for record in records:
+        if record.get("action") != "retired":
+            continue
         relative = str(record["path"])
         destination = safe_child(codex_home, relative)
+        retired_hash = str(record.get("retired_sha256") or record.get("installed_sha256") or "")
+        if destination.exists():
+            if not destination.is_file() or sha256_file(destination) != retired_hash:
+                conflicts.append({"path": relative, "action": "preserved_recreated_retired_path"})
+            continue
+        backup = safe_child(backup_root, relative)
+        if not backup.is_file() or sha256_file(backup) != record.get("backup_sha256"):
+            conflicts.append({"path": relative, "action": "missing_retirement_backup"})
+    if conflicts:
+        return conflicts
+    for record in reversed(records):
+        relative = str(record["path"])
+        destination = safe_child(codex_home, relative)
+        if record.get("action") == "retired":
+            retired_hash = str(record.get("retired_sha256") or record.get("installed_sha256") or "")
+            if destination.exists():
+                if destination.is_file() and sha256_file(destination) == retired_hash:
+                    continue
+                conflicts.append({"path": relative, "action": "preserved_recreated_retired_path"})
+                continue
+            backup = safe_child(backup_root, relative)
+            if not backup.is_file() or sha256_file(backup) != record.get("backup_sha256"):
+                conflicts.append({"path": relative, "action": "missing_retirement_backup"})
+                continue
+            _copy_file_atomic(backup, destination)
+            continue
         if not destination.exists() or sha256_file(destination) != record.get("installed_sha256"):
             conflicts.append({"path": relative, "action": "preserved_modified_or_missing"})
             continue

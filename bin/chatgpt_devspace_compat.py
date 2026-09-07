@@ -30,9 +30,15 @@ NATIVE_DEPENDENCY_RESOLVED = (
 NATIVE_DEPENDENCY_INSTALL_SCRIPT = "prebuild-install || node-gyp rebuild --release"
 PATCHES = {
     "dist/artifact-tools.js": {
-        "patch": "artifact-audit-readonly.patch",
         "pristine": "53a045b3961875afce5a95b3992aea3d156b64c0268b1d22724d2ed8e2c3aad2",
-        "patched": "fd5204b37da657d6183c8394b5ee8bed09bbffd50999946b4d0421897a52dfa7",
+        "patched": "53a045b3961875afce5a95b3992aea3d156b64c0268b1d22724d2ed8e2c3aad2",
+        "transitions": {
+            "fd5204b37da657d6183c8394b5ee8bed09bbffd50999946b4d0421897a52dfa7": {
+                "patch": "artifact-audit-readonly.patch",
+                "reverse": True,
+                "result": "53a045b3961875afce5a95b3992aea3d156b64c0268b1d22724d2ed8e2c3aad2",
+            },
+        },
     },
     "dist/oauth-provider.js": {
         "patch": "oauth-refresh-replay.patch",
@@ -42,11 +48,33 @@ PATCHES = {
     "dist/server.js": {
         "patch": "workspace-write-and-read-bridge.patch",
         "pristine": "bf3db902241b631d7c6fbaf12385243b46b4f2d4bb776b6ea7ca6c9d429a3263",
-        "patched": "d35a4cd7b5678b4fa16c05ba8ca1d8cc0937d9f4c2bdd48e454a46ffa28da598",
-        "upgrades": {
-            "659cb1011cd7ab7fb75debb21a44f030001797c2160a42beac527354be93e497": "tool-read-receipts.patch",
-            "1370524581b75d6b91d281dea52e427004a5ac71c19ac8090d66fe521748760c": "widget-domain.patch",
-            "efd7a769601aae31b1f4d8a2e22767bba6c587b56488100dea85ad2c17f02985": "receipt-structured-output.patch",
+        "patched": "eeaae28aff625c28940463fe0909a53250580ab90748956a216e07ebc8604988",
+        "transitions": {
+            "bf3db902241b631d7c6fbaf12385243b46b4f2d4bb776b6ea7ca6c9d429a3263": {
+                "patch": "workspace-write-and-read-bridge.patch",
+                "reverse": False,
+                "result": "659cb1011cd7ab7fb75debb21a44f030001797c2160a42beac527354be93e497",
+            },
+            "659cb1011cd7ab7fb75debb21a44f030001797c2160a42beac527354be93e497": {
+                "patch": "widget-domain.patch",
+                "reverse": False,
+                "result": "eeaae28aff625c28940463fe0909a53250580ab90748956a216e07ebc8604988",
+            },
+            "1370524581b75d6b91d281dea52e427004a5ac71c19ac8090d66fe521748760c": {
+                "patch": "tool-read-receipts.patch",
+                "reverse": True,
+                "result": "659cb1011cd7ab7fb75debb21a44f030001797c2160a42beac527354be93e497",
+            },
+            "efd7a769601aae31b1f4d8a2e22767bba6c587b56488100dea85ad2c17f02985": {
+                "patch": "widget-domain.patch",
+                "reverse": True,
+                "result": "1370524581b75d6b91d281dea52e427004a5ac71c19ac8090d66fe521748760c",
+            },
+            "d35a4cd7b5678b4fa16c05ba8ca1d8cc0937d9f4c2bdd48e454a46ffa28da598": {
+                "patch": "receipt-structured-output.patch",
+                "reverse": True,
+                "result": "efd7a769601aae31b1f4d8a2e22767bba6c587b56488100dea85ad2c17f02985",
+            },
         },
     },
     "dist/workspaces.js": {
@@ -943,7 +971,7 @@ def _git_kwargs() -> dict[str, Any]:
     return {"creationflags": CREATE_NO_WINDOW, "startupinfo": startup}
 
 
-def _apply_patch(package_root: Path, patch_path: Path) -> None:
+def _apply_patch(package_root: Path, patch_path: Path, *, reverse: bool = False) -> None:
     isolated_env = os.environ.copy()
     isolated_env["GIT_CEILING_DIRECTORIES"] = str(package_root.parent)
     patch_bytes = patch_path.read_bytes().replace(b"\r\n", b"\n")
@@ -951,6 +979,8 @@ def _apply_patch(package_root: Path, patch_path: Path) -> None:
         argv = ["git", "-c", "core.autocrlf=false", "apply", "--ignore-space-change"]
         if check_only:
             argv.append("--check")
+        if reverse:
+            argv.append("--reverse")
         argv.append("-")
         completed = subprocess.run(
             argv,
@@ -988,6 +1018,7 @@ def ensure_devspace_compatibility(
     )
     changed: list[str] = []
     already: list[str] = []
+    migrations: list[dict[str, Any]] = []
     oauth_checks: list[dict[str, Any]] = []
     large_read_checks: list[dict[str, Any]] = []
     for root in roots:
@@ -1004,21 +1035,44 @@ def ensure_devspace_compatibility(
             if current == contract["patched"]:
                 already.append(item)
                 continue
+            transitions = (
+                contract.get("transitions")
+                if isinstance(contract.get("transitions"), dict)
+                else {}
+            )
             upgrades = contract.get("upgrades") if isinstance(contract.get("upgrades"), dict) else {}
-            if current != contract["pristine"] and current not in upgrades:
+            accepted = {contract["pristine"], contract["patched"], *transitions, *upgrades}
+            if current not in accepted:
                 raise DevSpaceCompatError(
                     "DEVSPACE_FILE_HASH_MISMATCH",
                     "DevSpace compatibility refuses an unknown third-party file",
                     {
                         "path": str(target),
                         "actual": current,
-                        "expected": [contract["pristine"], contract["patched"], *sorted(upgrades)],
+                        "expected": sorted(accepted),
                     },
                 )
             backup_path = backup / Path(relative)
             backup_path.parent.mkdir(parents=True, exist_ok=True)
             if not backup_path.exists():
                 shutil.copy2(target, backup_path)
+            exact_backup = backup / "by-sha256" / current / Path(relative)
+            exact_backup.parent.mkdir(parents=True, exist_ok=True)
+            if exact_backup.exists():
+                if sha256_file(exact_backup) != current:
+                    raise DevSpaceCompatError(
+                        "DEVSPACE_BACKUP_HASH_MISMATCH",
+                        "DevSpace compatibility found a corrupt exact-hash backup",
+                        {"path": str(exact_backup), "expected": current},
+                    )
+            else:
+                shutil.copy2(target, exact_backup)
+                if sha256_file(exact_backup) != current:
+                    raise DevSpaceCompatError(
+                        "DEVSPACE_BACKUP_HASH_MISMATCH",
+                        "DevSpace compatibility could not preserve the exact pre-migration bytes",
+                        {"path": str(exact_backup), "expected": current},
+                    )
             observed: set[str] = set()
             while current != contract["patched"]:
                 if current in observed:
@@ -1028,7 +1082,15 @@ def ensure_devspace_compatibility(
                         {"path": str(target), "actual": current},
                     )
                 observed.add(current)
-                patch_name = contract["patch"] if current == contract["pristine"] else upgrades.get(current)
+                transition = transitions.get(current)
+                if isinstance(transition, dict):
+                    patch_name = str(transition.get("patch") or "")
+                    reverse = transition.get("reverse") is True
+                    expected_result = str(transition.get("result") or "")
+                else:
+                    patch_name = contract.get("patch") if current == contract["pristine"] else upgrades.get(current)
+                    reverse = False
+                    expected_result = ""
                 if not patch_name:
                     raise DevSpaceCompatError(
                         "DEVSPACE_PATCH_HASH_MISMATCH",
@@ -1039,8 +1101,32 @@ def ensure_devspace_compatibility(
                             "expected": contract["patched"],
                         },
                     )
-                _apply_patch(root, patch_root() / str(patch_name))
+                before = current
+                _apply_patch(root, patch_root() / str(patch_name), reverse=reverse)
                 current = sha256_file(target)
+                if expected_result and current != expected_result:
+                    raise DevSpaceCompatError(
+                        "DEVSPACE_PATCH_TRANSITION_HASH_MISMATCH",
+                        "DevSpace compatibility patch transition produced unexpected bytes",
+                        {
+                            "path": str(target),
+                            "patch": patch_name,
+                            "reverse": reverse,
+                            "before": before,
+                            "actual": current,
+                            "expected": expected_result,
+                        },
+                    )
+                migrations.append(
+                    {
+                        "path": item,
+                        "from_sha256": before,
+                        "to_sha256": current,
+                        "patch": patch_name,
+                        "reverse": reverse,
+                        "backup_path": str(exact_backup),
+                    }
+                )
             changed.append(item)
         if "dist/oauth-provider.js" in PATCHES:
             oauth_checks.append(check_oauth_refresh_replay(package_root=root))
@@ -1055,6 +1141,7 @@ def ensure_devspace_compatibility(
         "package_roots": [str(root) for root in roots],
         "changed": changed,
         "already_patched": already,
+        "migrations": migrations,
         "oauth_refresh_replay_checks": oauth_checks,
         "large_read_bridge_checks": large_read_checks,
         "service_restart_required": marker.is_file(),

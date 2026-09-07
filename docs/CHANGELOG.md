@@ -1,6 +1,23 @@
 # 기술 변경 기록
 
-## 1.20.16 - Explicit Latest selection and resumable Windows startup
+## 2.0.0 - One lean execution flow
+
+- Replace separate new-work execution modes with one mission-based flow and
+  explicit model/effort selection. Existing historical records retain their
+  original recovery authority; retired modes are not new-work fallbacks.
+- Use temporary chats with existing user-enabled personalization. Persist the
+  complete result before closing the owned tab; recover the same run after
+  uncertainty without automatically resending the prompt.
+- Remove compulsory audit nonces, ordered tool calls, three receipts, repeated
+  qualification chains, magic output markers, and archive/restore phases from
+  ordinary execution. Keep authentication, approved roots, model selection,
+  task ownership, result integrity, and relevant project tests.
+- Define one shared app policy for consuming projects. Preserve their domain
+  checks and configured native commander instead of copying routing rituals.
+- Remove the synthetic release-review marker requirement while retaining a
+  merged PR, exact-commit CI, and immutable publication identity.
+- Include the previously unreleased Latest-selection and Windows startup fixes
+  described below. The public execution-interface replacement is a major change.
 
 - Oracle 0.18.0's compatibility adapter explicitly selects `Latest` / `최신`
   before setting the requested power level. The five positions map to light,
@@ -13,16 +30,19 @@
   model, no-submission, and real workspace-read verification.
 - Fresh owned browser launches clean up only their captured startup blank tabs
   after connecting a separate work tab. Startup preferences are normalized only
-  in the throwaway copied profile; original login profiles, cookies, existing
+  in the run-owned copied profile; original login profiles, cookies, existing
   conversations, reused browsers, and unrelated tabs remain untouched.
+- Retain the isolated profile for same-tab recovery using Oracle's supported
+  manual-login profile option. Do not combine Oracle's non-reattachable
+  `--copy-profile` mode with browser retention. Windows process probes never
+  send signals, and reconnect previews do not write lock files.
 - Onboarding gains readable Korean/English progress, UTF-8 output, resumable
   partial setup, and hash-bound watchdog recovery evidence. A saved project
   list alone no longer proves successful service recovery.
 - Runtime and service identity checks distinguish executable/version evidence
   from a matching path string, including Windows app-cache installations.
-- Standing non-implementation cognitive work uses Oracle `@codex` Latest/6 Pro;
-  native Sol owns implementation, Luna/local checks own mechanical testing,
-  and Astra retains orchestration and release control. CGW remains removed.
+- Preserve user-approved native commander and worker routing. Web delegation
+  is not forced by the app policy, and CGW remains removed.
 
 ## 1.20.15 - Verify the current GPT-5.6 Sol Pro power slider
 

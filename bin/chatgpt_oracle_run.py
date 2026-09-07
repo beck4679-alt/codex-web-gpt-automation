@@ -96,6 +96,20 @@ def load_runtime_module():
 RUNTIME = load_runtime_module()
 
 
+def load_execute_module():
+    path = Path(__file__).resolve().with_name("chatgpt_oracle_execute.py")
+    spec = importlib.util.spec_from_file_location("chatgpt_oracle_execute_for_run", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("lean Oracle executor unavailable")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+EXECUTOR = load_execute_module()
+
+
 class OracleRunError(RuntimeError):
     def __init__(self, code: str, message: str, evidence: dict[str, Any] | None = None):
         super().__init__(message)
@@ -4254,11 +4268,23 @@ def _launch_followup_reserved_round(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run additive Oracle browser missions without modifying agbrowse routing.")
+    parser = argparse.ArgumentParser(
+        description="Execute one lean Oracle mission or explicitly recover a historical run."
+    )
     commands = parser.add_subparsers(dest="command", required=True)
-    run_parser = commands.add_parser("run")
-    run_parser.add_argument("--manifest", type=Path, required=True)
-    run_parser.add_argument("--dry-run", action="store_true")
+    execute_parser = commands.add_parser("execute", help="ordinary single-mission flow")
+    execute_parser.add_argument("--manifest", type=Path)
+    execute_parser.add_argument("--project-root", type=Path)
+    execute_parser.add_argument("--mission-path", type=Path)
+    execute_parser.add_argument("--run-root", type=Path)
+    execute_parser.add_argument("--run-id")
+    execute_parser.add_argument("--model", choices=EXECUTOR.SUPPORTED_MODELS, default=EXECUTOR.DEFAULT_MODEL)
+    execute_parser.add_argument("--effort", choices=EXECUTOR.SUPPORTED_EFFORTS, default=EXECUTOR.DEFAULT_EFFORT)
+    execute_parser.add_argument("--app-name", default=EXECUTOR.DEFAULT_APP_NAME)
+    execute_parser.add_argument("--dry-run", action="store_true")
+    reconnect_parser = commands.add_parser("reconnect", help="prompt-free continuation of one ordinary run")
+    reconnect_parser.add_argument("--run-dir", type=Path, required=True)
+    reconnect_parser.add_argument("--dry-run", action="store_true")
     followup_parser = commands.add_parser("followup")
     followup_parser.add_argument("--parent-run-dir", type=Path, required=True)
     followup_parser.add_argument("--mission-path", type=Path, required=True)
@@ -4385,8 +4411,32 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        if args.command == "run":
-            payload = execute_run(args.manifest, dry_run=args.dry_run)
+        if args.command == "execute":
+            if args.manifest is not None:
+                if args.project_root is not None or args.mission_path is not None or args.run_root is not None or args.run_id is not None:
+                    raise EXECUTOR.ExecutionError(
+                        "EXECUTE_ARGUMENTS_CONFLICT",
+                        "--manifest cannot be combined with direct root, mission, or run identity arguments",
+                    )
+                payload = EXECUTOR.execute_manifest(args.manifest, dry_run=args.dry_run)
+            else:
+                if args.project_root is None or args.mission_path is None:
+                    raise EXECUTOR.ExecutionError(
+                        "EXECUTE_ARGUMENTS_REQUIRED",
+                        "execute requires --project-root and --mission-path when --manifest is omitted",
+                    )
+                config = EXECUTOR.make_config(
+                    project_root=args.project_root,
+                    mission_path=args.mission_path,
+                    run_root=args.run_root,
+                    run_id=args.run_id,
+                    model=args.model,
+                    effort=args.effort,
+                    app_name=args.app_name,
+                )
+                payload = EXECUTOR.execute_config(config, dry_run=args.dry_run)
+        elif args.command == "reconnect":
+            payload = EXECUTOR.reconnect_run(args.run_dir, dry_run=args.dry_run)
         elif args.command == "followup":
             payload = followup_run(
                 args.parent_run_dir,
@@ -4492,6 +4542,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 dry_run=args.dry_run,
             )
     except STATE.OracleStateError as exc:
+        payload = exc.envelope()
+    except EXECUTOR.ExecutionError as exc:
         payload = exc.envelope()
     except OracleRunError as exc:
         payload = exc.envelope()
