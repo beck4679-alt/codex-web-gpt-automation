@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -32,7 +33,21 @@ def test_portable_lifecycle_is_exact_inverse(tmp_path: Path) -> None:
     installed = module.install(ROOT, codex_home)
     assert installed["ok"] and installed["count"] > 120
     receipt = Path(installed["receipt"])
-    assert module.doctor(codex_home)["status"] == "PASS"
+    runtime_command = [str(tmp_path / "runtime" / "node"), str(tmp_path / "runtime" / "oracle-cli.js")]
+    probes = []
+
+    def runtime_probe(command, **kwargs):
+        assert command == [*runtime_command, "--version"]
+        assert kwargs["timeout"] == module.ORACLE_VERSION_PROBE_TIMEOUT_SECONDS
+        assert kwargs["stdin"] == subprocess.DEVNULL
+        probes.append(command)
+        return subprocess.CompletedProcess(command, 0, "oracle 0.18.0\n", "")
+
+    diagnosis = module.doctor(
+        codex_home, oracle_resolver=lambda: runtime_command, oracle_run_factory=runtime_probe,
+    )
+    assert diagnosis["status"] == "PASS", diagnosis
+    assert probes == [[*runtime_command, "--version"]]
 
     rolled_back = module.rollback(codex_home, receipt)
     assert rolled_back == {"ok": True, "status": "COMPLETE", "receipt": str(receipt), "conflicts": []}

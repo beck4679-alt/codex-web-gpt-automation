@@ -1328,7 +1328,9 @@ def test_default_command_is_resolved_only_at_live_version_boundary(tmp_path: Pat
             AssertionError("dry-run must not inspect installed runtime")
         ),
     )
-    assert dry_run["argv"][:3] == ["npx.cmd", "-y", "@steipete/oracle@0.18.0"]
+    assert dry_run["argv"][:3] == [
+        "npx.cmd" if os.name == "nt" else "npx", "-y", "@steipete/oracle@0.18.0",
+    ]
 
     observed_version_commands: list[list[str]] = []
     def stop_at_version(command, **_kwargs):

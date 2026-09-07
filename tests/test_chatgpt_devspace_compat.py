@@ -516,6 +516,8 @@ def test_stop_service_requires_exact_devspace_identity(tmp_path: Path) -> None:
     assert result["stopped"] is True
     assert stopped == [44]
 
+    # Real npm installs create .bin; strict POSIX resolution traverses it before .. .
+    (package.parent.parent / ".bin").mkdir()
     npx_cli = package.parent.parent / ".bin" / ".." / "@waishnav" / "devspace" / "dist" / "cli.js"
     npx_identity = {
         "pid": 45,
