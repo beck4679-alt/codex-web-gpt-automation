@@ -792,6 +792,7 @@ def _execution_capture_binding(
         capture.get("actual_model")
         or capture.get("model")
         or execution.get("actual_model")
+        or model_check.get("actual_model")
         or model_check.get("model")
         or selection.get("model")
     )

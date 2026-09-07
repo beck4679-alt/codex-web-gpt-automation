@@ -268,9 +268,21 @@ def test_one_latest_model_check_covers_model_and_effort(executor, tmp_path: Path
     assert check == {
         "verified": True,
         "model": "latest",
+        "actual_model": "6 Pro" if effort == "pro" else None,
         "effort": effort,
         "source": "oracle-picker-dom-log",
     }
+
+
+@pytest.mark.parametrize("label, verified", [("Thinking effort", True), ("추론 수준", True), ("5.6 Pro", False)])
+def test_latest_pro_accepts_actual_menu_signal(executor, tmp_path, label, verified):
+    proof = picker_proof()
+    proof["composer"]["text"] = label
+    proof["modelSignals"] = [{"text": "6Pro", "visible": True}]
+    stdout = tmp_path / "stdout.log"
+    stdout.write_text(executor.PICKER_PROOF_PREFIX + json.dumps(proof), encoding="utf-8")
+    result = executor.observed_model_check(stdout, model="latest", effort="pro")
+    assert result["verified"] is verified
 
 
 def test_explicit_model_uses_observed_select_logs(executor, tmp_path: Path):

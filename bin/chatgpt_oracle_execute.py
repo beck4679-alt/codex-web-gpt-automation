@@ -638,12 +638,24 @@ def observed_model_check(stdout_path: Path, *, model: str, effort: str) -> dict[
                 proof = json.loads(line.split(PICKER_PROOF_PREFIX, 1)[1].strip())
             except json.JSONDecodeError:
                 continue
+            if not isinstance(proof, dict):
+                continue
             slider = proof.get("slider") if isinstance(proof, dict) and isinstance(proof.get("slider"), dict) else {}
             composer = proof.get("composer") if isinstance(proof, dict) and isinstance(proof.get("composer"), dict) else {}
+            signals = proof.get("modelSignals") if isinstance(proof.get("modelSignals"), list) else []
+            composer_label = re.sub(r"\s+", "", str(composer.get("text") or "")).casefold()
+            pro_visible = composer.get("visible") is True and (
+                composer_label == "6pro" or (
+                    composer_label in {"thinkingeffort", "추론수준", "사고수준", "성능", "pro"}
+                    and any(isinstance(signal, dict) and signal.get("visible") is True
+                            and re.sub(r"\s+", "", str(signal.get("text") or "")).casefold() == "6pro"
+                            for signal in signals)
+                )
+            )
             verified = bool(
                 proof.get("schema") == "codex.oracle.picker-dom-proof/v1"
                 and proof.get("latestClicked") is True
-                and int(proof.get("stableReads") or 0) >= 2
+                and isinstance(proof.get("stableReads"), int) and proof["stableReads"] >= 2
                 and _selected_latest_row(proof.get("modelRows"))
                 and slider.get("visible") is True
                 and slider.get("ordinal") == expected_ordinal
@@ -652,13 +664,11 @@ def observed_model_check(stdout_path: Path, *, model: str, effort: str) -> dict[
                 and slider.get("displayTotal") == 5
                 and (
                     effort != "pro"
-                    or (
-                        composer.get("visible") is True
-                        and re.sub(r"\s+", "", str(composer.get("text") or "")).casefold() == "6pro"
-                    )
+                    or pro_visible
                 )
             )
-            return {"verified": verified, "model": model, "effort": effort, "source": "oracle-picker-dom-log"}
+            return {"verified": verified, "model": model, "actual_model": "6 Pro" if verified and effort == "pro" else None,
+                    "effort": effort, "source": "oracle-picker-dom-log"}
         return {"verified": False, "model": model, "effort": effort, "source": None}
 
     evidence_line = next((line for line in reversed(lines) if MODEL_EVIDENCE_PREFIX in line), "")
