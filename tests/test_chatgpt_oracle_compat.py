@@ -124,6 +124,41 @@ def test_hash_specific_legacy_patch_migrates_without_backup(tmp_path: Path) -> N
     assert (backup / "sample.txt").read_bytes() == b"before\n"
 
 
+def test_known_legacy_patch_migrates_from_verified_pristine_backup(tmp_path: Path) -> None:
+    compat = load_compat()
+    package = tmp_path / "package"
+    package.mkdir()
+    (package / "package.json").write_text(json.dumps({"version": "0.18.0"}), encoding="utf-8")
+    target = package / "sample.txt"
+    target.write_bytes(b"middle\n")
+    patches = tmp_path / "patches"
+    patches.mkdir()
+    (patches / "sample.patch").write_text(
+        "diff --git a/sample.txt b/sample.txt\n--- a/sample.txt\n+++ b/sample.txt\n@@ -1 +1 @@\n-before\n+after\n",
+        encoding="utf-8",
+    )
+    backup = tmp_path / "backup"
+    backup.mkdir()
+    (backup / "sample.txt").write_bytes(b"before\n")
+    compat.PATCHES = {
+        "sample.txt": {
+            "patch": "sample.patch",
+            "pristine": digest(b"before\n"),
+            "patched": digest(b"after\n"),
+            "legacy_patched": [digest(b"middle\n")],
+        }
+    }
+    compat.patch_root = lambda version=compat.SUPPORTED_VERSION: patches
+
+    result = compat.ensure_oracle_compatibility(
+        "oracle 0.18.0", package_root=package, backup_root=backup
+    )
+
+    assert result["changed"] == ["sample.txt"]
+    assert target.read_bytes() == b"after\n"
+    assert (backup / "sample.txt").read_bytes() == b"before\n"
+
+
 def test_unknown_oracle_version_or_file_hash_fails_closed(tmp_path: Path) -> None:
     compat = load_compat()
     with pytest.raises(compat.OracleCompatError) as version:
@@ -586,6 +621,10 @@ def test_published_0180_pro_power_slider_current_ui_is_verified_and_fail_closed(
         (Path(__file__).parent / "fixtures" / "oracle-0180-gpt56-sol-power-slider-delayed-model.json")
         .read_text(encoding="utf-8")
     )
+    latest_fixture = json.loads(
+        (Path(__file__).parent / "fixtures" / "oracle-0180-latest-pro-power-slider.json")
+        .read_text(encoding="utf-8")
+    )
     assert fixture["model_button"]["text"] == "Thinking effort"
     assert fixture["simple_view"]["text"].startswith("Pro, 5 of 5")
     assert fixture["slider_control"] == {
@@ -605,6 +644,9 @@ def test_published_0180_pro_power_slider_current_ui_is_verified_and_fail_closed(
         "label": "GPT-5.6 Sol",
         "ariaChecked": True,
     }
+    assert [row["label"] for row in latest_fixture["model_rows"]] == [
+        "Latest", "GPT-5.6 Sol", "GPT-5.5",
+    ]
     node = shutil.which("node")
     assert node is not None
     source_text = target.read_text(encoding="utf-8")
@@ -635,11 +677,13 @@ def test_published_0180_pro_power_slider_current_ui_is_verified_and_fail_closed(
     fixture_literal = json.dumps(fixture)
     one_based_fixture_literal = json.dumps(one_based_fixture)
     delayed_model_fixture_literal = json.dumps(delayed_model_fixture)
+    latest_fixture_literal = json.dumps(latest_fixture)
     script = f"""
 import {{ ensureThinkingTime }} from {json.dumps(test_module.as_uri())};
 const fixture = {fixture_literal};
 const oneBasedFixture = {one_based_fixture_literal};
 const delayedModelFixture = {delayed_model_fixture_literal};
+const latestFixture = {latest_fixture_literal};
 class FakeElement extends EventTarget {{
   constructor(text, attrs = {{}}, visible = true) {{
     super(); this._text = text; this.attrs = attrs; this.visible = visible;
@@ -667,24 +711,26 @@ globalThis.window = globalThis;
       constructor(type, init) {{ super(type, init); this.key=init.key; this.code=init.code; }}
     }};
 
-const runCase = async ({{rangeFixture = fixture, validModel = true, controlledFragment = false,
+const runCase = async ({{rangeFixture = null, uiFixture = fixture,
+  desiredModel = 'gpt-5.6-sol', selectedModelIndex = 0, controlledFragment = false,
   modelRowsMountAfter = 0, contradictoryDisplay = false, duplicateExplicitMenu = false}} = {{}}) => {{
+  rangeFixture ||= uiFixture;
   const sliderFixture = rangeFixture.slider_control;
   let rawValue = sliderFixture.ariaValueNow;
   let keydowns = 0;
   let modelReads = 0;
   const ordinal = () => rawValue - sliderFixture.ariaValueMin + 1;
   const total = sliderFixture.ariaValueMax - sliderFixture.ariaValueMin + 1;
-  const pill = new FakeElement(fixture.model_button.text, {{
-    'aria-haspopup': fixture.model_button.ariaHaspopup,
-    'aria-expanded': fixture.model_button.ariaExpanded,
+  const pill = new FakeElement(uiFixture.model_button.text, {{
+    'aria-haspopup': uiFixture.model_button.ariaHaspopup,
+    'aria-expanded': uiFixture.model_button.ariaExpanded,
     'aria-controls': controlledFragment ? 'controlled-effort-fragment' : null,
   }});
   const view = new FakeElement(() =>
     (rawValue === sliderFixture.ariaValueMax || contradictoryDisplay ? 'Pro' : 'Extra High') + ', ' +
       (contradictoryDisplay ? total : ordinal()) + ' of ' + total +
       '.Use Left and Right arrow keys to adjust power.',
-    {{'data-testid': fixture.simple_view.testid}},
+    {{'data-testid': uiFixture.simple_view.testid}},
   );
   const slider = new FakeElement('', {{
     role: 'slider',
@@ -693,22 +739,20 @@ const runCase = async ({{rangeFixture = fixture, validModel = true, controlledFr
     'aria-valuenow': () => String(rawValue),
   }});
   view.queryOne = (selector) => selector.includes('[role="slider"]') ? slider : null;
-  const power = new FakeElement('', {{role: 'menuitem', 'aria-label': fixture.power_control.ariaLabel}});
+  const power = new FakeElement('', {{role: 'menuitem', 'aria-label': uiFixture.power_control.ariaLabel}});
   slider.addEventListener('keydown', (event) => {{
     if (event.key === 'ArrowRight') {{
       rawValue = Math.min(sliderFixture.ariaValueMax, rawValue + 1);
       keydowns += 1;
     }}
   }});
-  const model56 = new FakeElement(fixture.model_rows[0].label, {{
-    role: 'menuitemradio', 'aria-checked': validModel ? 'true' : 'false',
-    'data-state': validModel ? 'checked' : null,
-  }});
-  const model55 = new FakeElement(fixture.model_rows[1].label, {{
-    role: 'menuitemradio', 'aria-checked': validModel ? 'false' : 'true',
-    'data-state': validModel ? null : 'checked',
-  }});
-  const menu = new FakeElement('ProPro, 5 of 5.GPT-5.6 SolGPT-5.5', {{
+  const modelRows = uiFixture.model_rows.map((row, index) => new FakeElement(row.label, {{
+    role: 'menuitemradio',
+    'aria-checked': index === selectedModelIndex ? 'true' : 'false',
+    'data-state': index === selectedModelIndex ? 'checked' : null,
+  }}));
+  const menu = new FakeElement(
+    'ProPro, 5 of 5.' + uiFixture.model_rows.map((row) => row.label).join(''), {{
     role: 'menu', 'data-testid': 'composer-intelligence-picker-content',
   }});
   const fragment = new FakeElement('Pro, 5 of 5.', {{
@@ -722,10 +766,10 @@ const runCase = async ({{rangeFixture = fixture, validModel = true, controlledFr
     selector.includes('composer-intelligence-picker-content') ? menu : null;
   menu.queryMany = (selector) =>
     selector === '[role="menuitemradio"]' ?
-      (++modelReads <= modelRowsMountAfter ? [] : [model56, model55]) :
+      (++modelReads <= modelRowsMountAfter ? [] : modelRows) :
     selector.includes('[role="menuitem"], button') ? [power] :
     selector.includes('[role="menuitem"]') ? [power] :
-    selector.includes('[role="menuitemradio"]') ? [model56, model55] :
+    selector.includes('[role="menuitemradio"]') ? modelRows :
     selector.includes('[data-testid]') ? [view] : [];
   const duplicateMenu = new FakeElement(menu.textContent, {{
     role: 'menu', 'data-testid': 'composer-intelligence-picker-content',
@@ -747,7 +791,7 @@ const runCase = async ({{rangeFixture = fixture, validModel = true, controlledFr
   const logs = [];
   const Runtime = {{evaluate: async ({{expression}}) => ({{result: {{value: await eval(expression)}}}})}};
   try {{
-    await ensureThinkingTime(Runtime, 'pro', (message) => logs.push(message), 'gpt-5.6-sol');
+    await ensureThinkingTime(Runtime, 'pro', (message) => logs.push(message), desiredModel);
     return {{ok: true, logs, rawValue, ordinal: ordinal(), keydowns}};
   }} catch (error) {{
     return {{ok: false, message: error.message, logs, rawValue, ordinal: ordinal(), keydowns}};
@@ -755,6 +799,7 @@ const runCase = async ({{rangeFixture = fixture, validModel = true, controlledFr
 }};
 console.log(JSON.stringify({{
   selectedZeroBased: await runCase(),
+  selectedLatest: await runCase({{uiFixture: latestFixture, desiredModel: 'Latest'}}),
   controlledPortal: await runCase({{controlledFragment: true}}),
   delayedModelRows: await runCase({{
     modelRowsMountAfter: delayedModelFixture.model_rows_mount_after_queries,
@@ -768,7 +813,13 @@ console.log(JSON.stringify({{
     contradictoryDisplay: true,
   }}),
   duplicateExplicitMenu: await runCase({{duplicateExplicitMenu: true}}),
-  wrongModel: await runCase({{validModel: false}}),
+  wrongModel: await runCase({{selectedModelIndex: 1}}),
+  latestRejectsSol: await runCase({{
+    uiFixture: latestFixture, desiredModel: 'Latest', selectedModelIndex: 1,
+  }}),
+  solRejectsLatest: await runCase({{
+    uiFixture: latestFixture, desiredModel: 'gpt-5.6-sol', selectedModelIndex: 0,
+  }}),
 }}));
 """
     completed = subprocess.run(
@@ -787,6 +838,7 @@ console.log(JSON.stringify({{
         "ordinal": 5,
         "keydowns": 0,
     }
+    assert result["selectedLatest"] == result["selectedZeroBased"]
     assert result["controlledPortal"] == {
         "ok": True,
         "logs": ["[browser] Thinking time: Pro, 5 of 5 (already selected)"],
@@ -815,11 +867,97 @@ console.log(JSON.stringify({{
         "ordinal": 5,
         "keydowns": 3,
     }
-    assert result["wrongModel"]["ok"] is False
-    assert "refusing to submit without confirmed Pro" in result["wrongModel"]["message"]
+    for case in ("wrongModel", "latestRejectsSol", "solRejectsLatest"):
+        assert result[case]["ok"] is False
+        assert "refusing to submit without confirmed Pro" in result[case]["message"]
     for case in ("contradictoryRangeLabel", "duplicateExplicitMenu"):
         assert result[case]["ok"] is False
         assert "refusing to submit without confirmed Pro" in result[case]["message"]
+
+
+def test_published_0180_latest_pro_alias_survives_cli_resolution(
+    tmp_path: Path,
+) -> None:
+    compat = load_compat()
+    configured = os.environ.get("ORACLE_018_PACKAGE_ROOT", "").strip()
+    source = Path(configured) if configured else Path("__oracle_018_cache_unset__")
+    if not source.is_dir():
+        if os.environ.get("CI"):
+            pytest.fail("CI must prepare the exact published Oracle 0.18.0 package")
+        pytest.skip("published Oracle 0.18.0 package root is unavailable")
+    package = tmp_path / "oracle-latest-pro-alias"
+    shutil.copytree(source, package)
+    compat.ensure_oracle_compatibility(
+        "oracle 0.18.0", package_root=package, backup_root=tmp_path / "backup-latest-pro"
+    )
+    options_module = package / "dist/src/cli/options.js"
+    browser_config_module = package / "dist/src/cli/browserConfig.js"
+    oracle_cli = package / "dist/bin/oracle-cli.js"
+    assert 'model === "chatgpt-latest-pro"' in oracle_cli.read_text(encoding="utf-8")
+    options_source = re.sub(
+        r"^import .*?;\n",
+        "",
+        options_module.read_text(encoding="utf-8"),
+        flags=re.MULTILINE,
+    )
+    options_source = (
+        "class InvalidArgumentError extends Error {}\n"
+        "const parseDuration=()=>0; const path={}; const fg=()=>[];\n"
+        "const DEFAULT_MODEL='gpt-5.5-pro'; const MODEL_CONFIGS={};\n"
+        "const normalizeThinkingTimeLevel=(value)=>value;\n"
+        + options_source
+    )
+    options_under_test = tmp_path / "options-latest-pro.mjs"
+    options_under_test.write_text(options_source, encoding="utf-8")
+    browser_config_source = re.sub(
+        r"^import .*?;\n",
+        "",
+        browser_config_module.read_text(encoding="utf-8"),
+        flags=re.MULTILINE,
+    )
+    browser_config_source = (
+        "const fs={}; const path={}; const chalk={yellow:(value)=>value};\n"
+        "const normalizeThinkingTimeLevel=(value)=>value;\n"
+        "const CHATGPT_URL='https://chatgpt.com/'; const DEFAULT_MODEL_STRATEGY='select';\n"
+        "const DEFAULT_MODEL_TARGET='GPT-5.5'; const normalizeChatgptUrl=(value)=>value;\n"
+        "const parseDuration=()=>0; const normalizeBrowserModelStrategy=(value)=>value;\n"
+        "const getOracleHomeDir=()=>'';\n"
+        + browser_config_source
+    )
+    browser_config_under_test = tmp_path / "browser-config-latest-pro.mjs"
+    browser_config_under_test.write_text(browser_config_source, encoding="utf-8")
+    node = shutil.which("node")
+    assert node is not None
+    script = f"""
+import {{ inferModelFromLabel }} from {json.dumps(options_under_test.as_uri())};
+import {{ resolveBrowserModelLabel, resolveDefaultBrowserThinkingTime }} from {json.dumps(browser_config_under_test.as_uri())};
+const requestedModel = 'chatgpt-latest-pro';
+const activeModel = inferModelFromLabel(requestedModel);
+const browserModelLabel = resolveBrowserModelLabel(requestedModel, activeModel);
+const thinkingTime = resolveDefaultBrowserThinkingTime({{
+  model: activeModel,
+  requestedModel,
+  modelStrategy: 'select',
+}});
+console.log(JSON.stringify({{
+  activeModel,
+  browserModelLabel,
+  thinkingTime,
+}}));
+"""
+    completed = subprocess.run(
+        [node, "--input-type=module", "-e", script],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout) == {
+        "activeModel": "chatgpt-latest-pro",
+        "browserModelLabel": "Latest",
+        "thinkingTime": "pro",
+    }
 
 
 def test_published_0180_pro_power_slider_migrates_known_exact_bytes(
@@ -836,18 +974,21 @@ def test_published_0180_pro_power_slider_migrates_known_exact_bytes(
     contract = compat.PATCHES[relative]
     legacy_hashes = list(contract["legacy_patched"])
     assert legacy_hashes == [
+        "c1bb4123b6f0fd0d7b17075a23327d4058ce6490da84fb0d3581376c0bd5b841",
+        "1aa1a216f71e1213c2056efb0db4c4de7c2b2c505311e1be98c2b6a2784521dd",
         "978f754ba4011957790530474d27d629a8d353dd449f8e2636e02a9abd27b81a",
         "a19ce77fe57b4fa1a290e130da323377ed69b6e51b1ad133b1ab5355ead59345",
     ]
+    reversible_legacy_hashes = legacy_hashes[-2:]
     legacy_patches = {
         legacy_hash: str(contract.get("legacy_patches", {}).get(legacy_hash) or contract["legacy_patch"])
-        for legacy_hash in legacy_hashes
+        for legacy_hash in reversible_legacy_hashes
     }
-    assert legacy_patches[legacy_hashes[1]] == (
+    assert legacy_patches[reversible_legacy_hashes[1]] == (
         "thinkingTime.gpt56-pro-power-slider.pre-aria-range.patch"
     )
 
-    for index, legacy_hash in enumerate(legacy_hashes):
+    for index, legacy_hash in enumerate(reversible_legacy_hashes):
         package = tmp_path / f"oracle-pro-power-slider-legacy-{index}"
         shutil.copytree(source, package)
         target = package / relative

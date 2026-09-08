@@ -1,6 +1,6 @@
 {
   "schema": "codexpro.install-manifest/v1",
-  "version": "1.20.15",
+  "version": "1.20.16",
   "include": [
     "bin/chatgpt_agbrowse_bridge.py",
     "bin/chatgpt_agbrowse_composer.py",
@@ -66,6 +66,7 @@
     "bin/oracle-compat/0.17.1/navigation.resumed-hydration-recheck.patch",
     "bin/oracle-compat/0.18.0/oracle-cli.followup-timeout.patch",
     "bin/oracle-compat/0.18.0/oracle-cli.followup-port-and-timeout.patch",
+    "bin/oracle-compat/0.18.0/options.chatgpt-latest-pro.patch",
     "bin/oracle-compat/0.18.0/browserConfig.followup-port-binding.patch",
     "bin/oracle-compat/0.18.0/browserConfig.copy-profile-windows.patch",
     "bin/oracle-compat/0.18.0/chromeLifecycle.disable-session-crash-bubble.patch",

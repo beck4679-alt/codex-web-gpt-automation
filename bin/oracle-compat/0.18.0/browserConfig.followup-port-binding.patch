@@ -1,7 +1,7 @@
 diff --git a/dist/src/cli/browserConfig.js b/dist/src/cli/browserConfig.js
 --- a/dist/src/cli/browserConfig.js
 +++ b/dist/src/cli/browserConfig.js
-@@ -14,11 +14,19 @@
+@@ -14,11 +14,20 @@
  const DEFAULT_CHROME_PROFILE = "Default";
 +export function bindFollowupBrowserPort(browserConfig, requestedPort) {
 +    if (requestedPort == null)
@@ -11,6 +11,7 @@ diff --git a/dist/src/cli/browserConfig.js b/dist/src/cli/browserConfig.js
 +    return { ...browserConfig, debugPort: requestedPort };
 +}
  const CURRENT_CHATGPT_PRO_ALIASES = new Set([
++    "chatgpt-latest-pro",
      "gpt-5-pro",
      "gpt-5.1-pro",
      "gpt-5.2-pro",

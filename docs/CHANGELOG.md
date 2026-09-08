@@ -1,5 +1,15 @@
 # 기술 변경 기록
 
+## 1.20.16 - Route explicit Pro to the visible Latest model
+
+- The local `chatgpt-latest-pro` alias now survives Oracle 0.18.0's CLI model
+  normalization, remains browser-only, resolves to the visible `Latest` row,
+  and defaults to the `Pro` effort.
+- The power-slider proof binds `Latest` and legacy `GPT-5.6 Sol` separately,
+  so either checked model row cannot satisfy the other's request. The live
+  2026-09-09 unified Intelligence-picker shape is preserved as a regression
+  fixture and missing or contradictory evidence still fails before submission.
+
 ## 1.20.15 - Verify the current GPT-5.6 Sol Pro power slider
 
 - Oracle 0.18.0 now recognizes ChatGPT's current unified `Thinking effort`

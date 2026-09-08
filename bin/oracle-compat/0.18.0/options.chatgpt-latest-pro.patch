@@ -1,0 +1,13 @@
+diff --git a/dist/src/cli/options.js b/dist/src/cli/options.js
+--- a/dist/src/cli/options.js
++++ b/dist/src/cli/options.js
+@@ -278,6 +278,9 @@ export function inferModelFromLabel(modelValue) {
+     if (!normalized) {
+         return DEFAULT_MODEL;
+     }
++    if (normalized === "chatgpt-latest-pro") {
++        return normalized;
++    }
+     if (normalized in MODEL_CONFIGS) {
+         return normalized;
+     }

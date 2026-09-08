@@ -1,6 +1,17 @@
 diff --git a/dist/bin/oracle-cli.js b/dist/bin/oracle-cli.js
 --- a/dist/bin/oracle-cli.js
 +++ b/dist/bin/oracle-cli.js
+@@ -1168,7 +1168,9 @@ async function runRootCommand(options) {
+     const isClaude = primaryModelCandidate.startsWith("claude");
+     const userForcedBrowser = options.browser || options.engine === "browser";
+     const browserExplicitlyRequested = browserEngineRequested;
+-    const isBrowserCompatible = (model) => model.startsWith("gpt-") || model.startsWith("gemini");
++    const isBrowserCompatible = (model) => model.startsWith("gpt-") ||
++        model.startsWith("gemini") ||
++        model === "chatgpt-latest-pro";
+     const hasNonBrowserCompatibleTarget = normalizedMultiModels.length > 0
+         ? normalizedMultiModels.some((model) => !isBrowserCompatible(model))
+         : !isBrowserCompatible(resolvedModelCandidate);
 @@ -1330,7 +1330,22 @@ async function runRootCommand(options) {
          if (sessionMode !== "browser")
              return undefined;

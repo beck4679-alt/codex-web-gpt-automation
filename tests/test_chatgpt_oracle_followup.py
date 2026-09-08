@@ -242,7 +242,7 @@ def make_saved_terminal_output_child(tmp_path: Path, monkeypatch: pytest.MonkeyP
     (child.run_dir / "mission.md").write_bytes(mission.read_bytes())
     child.output_path.write_text("saved answer\nTASK_OUTCOME: EXECUTED\n", encoding="utf-8")
     child.stdout_path.write_text(
-        f"1h42m · gpt-5.6-sol[browser]\nSaved assistant output to {child.output_path}\n",
+        f"1h42m · {runner.STATE.CURRENT_PRO_MODEL}[browser]\nSaved assistant output to {child.output_path}\n",
         encoding="utf-8",
     )
     child.stderr_path.write_bytes(b"")
@@ -791,7 +791,7 @@ def make_archived_parent_unarchive_failure(
         "status": "error",
         "completedAt": ownership_created_at,
         "mode": "browser",
-        "model": "gpt-5.6-sol",
+        "model": runner.STATE.CURRENT_PRO_MODEL,
         "browser": {"config": browser_config},
         "options": {"browserConfig": browser_config},
         "error": {
@@ -1555,7 +1555,7 @@ def test_followup_textarea_absent_requires_harvest_and_owner_confirmation(
             f"🧿 oracle 0.17.1 — test\nSession: {child.slug}\nMode: browser foreground\n"
             "Models: 1\nDetach: no\n"
             f"Reattach: oracle session {child.slug}\n"
-            "Launching browser mode (target=GPT-5.6 Sol; requested=gpt-5.6-sol) with ~1 tokens.\n"
+            "Launching browser mode (target=Latest; requested=chatgpt-latest-pro) with ~1 tokens.\n"
             "This run can take up to an hour (usually ~10 minutes).\n"
             "ERROR: Prompt textarea did not appear before timeout\n"
             "User error (browser-automation): Prompt textarea did not appear before timeout\n"
@@ -1578,7 +1578,7 @@ def test_followup_textarea_absent_requires_harvest_and_owner_confirmation(
         meta_path.parent.mkdir(parents=True, exist_ok=True)
         parent_url = kwargs["_followup_binding"]["conversation_url"]
         meta_path.write_text(json.dumps({
-            "id": child.slug, "status": "error", "completedAt": "2026-08-23T00:00:00Z", "mode": "browser", "model": "gpt-5.6-sol",
+            "id": child.slug, "status": "error", "completedAt": "2026-08-23T00:00:00Z", "mode": "browser", "model": runner.STATE.CURRENT_PRO_MODEL,
             "browser": {"config": {"resumeConversationUrl": parent_url}},
             "options": {"browserConfig": {"resumeConversationUrl": parent_url}},
             "error": {"category": "browser-automation", "message": "Prompt textarea did not appear before timeout", "details": {"stage": "execute-browser"}},

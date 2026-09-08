@@ -1,12 +1,13 @@
 diff --git a/dist/src/browser/actions/thinkingTime.js b/dist/src/browser/actions/thinkingTime.js
 --- a/dist/src/browser/actions/thinkingTime.js
 +++ b/dist/src/browser/actions/thinkingTime.js
-@@ -182,3 +182,3 @@
+@@ -182,3 +182,4 @@
      const targetModelKindLiteral = JSON.stringify(inferThinkingTargetModelKind(desiredModel));
 -    const targetIsGpt56ModelLiteral = JSON.stringify(/(?:^|[^0-9])5[._ -]6(?:[^0-9]|$)/i.test(desiredModel ?? ""));
 +    const targetIsGpt56ModelLiteral = JSON.stringify(/(?:^|[^0-9])5[._ -]6(?:[^0-9]|$)|(?:^|[^a-z])latest(?:[^a-z]|$)/i.test(desiredModel ?? ""));
++    const targetIsLatestModelLiteral = JSON.stringify(/(?:^|[^a-z])latest(?:[^a-z]|$)/i.test(desiredModel ?? ""));
      return `(async () => {
-@@ -849,6 +849,204 @@ function buildThinkingTimeExpression(level, desiredModel) {
+@@ -849,6 +851,208 @@ function buildThinkingTimeExpression(level, desiredModel) {
        'effort', 'aufwand', '强度', '努力', '推論レベル',
        'esfuerzo', 'esforco', 'sforzo', 'inspanning', 'wysilek',
      ];
@@ -52,7 +53,11 @@ diff --git a/dist/src/browser/actions/thinkingTime.js b/dist/src/browser/actions
 +      if (selected.length === 0) return 'pending';
 +      if (selected.length !== 1) return 'conflicting';
 +      const normalizedModel = nodeLabel(selected[0]).replace(/\\s+/g, '');
-+      return normalizedModel === 'gpt56sol' || normalizedModel === 'latest'
++      return (
++        ${targetIsLatestModelLiteral}
++          ? normalizedModel === 'latest'
++          : normalizedModel === 'gpt56sol'
++      )
 +        ? 'exact'
 +        : 'wrong';
 +    };
@@ -211,7 +216,7 @@ diff --git a/dist/src/browser/actions/thinkingTime.js b/dist/src/browser/actions
      const containsAny = (label, words) => words.some((word) => label.includes(word));
      const findAdvancedToggle = (menu) => {
        for (const item of (menu || document).querySelectorAll('[role="menuitem"]')) {
-@@ -1069,6 +1266,13 @@ function buildThinkingTimeExpression(level, desiredModel) {
+@@ -1069,6 +1273,13 @@ function buildThinkingTimeExpression(level, desiredModel) {
        while (performance.now() < deadline) {
          const menu = findVisibleEffortMenu(composerEffortPill);
          if (menu) {

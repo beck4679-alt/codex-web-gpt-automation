@@ -228,13 +228,22 @@ PATCHES = {
     "dist/bin/oracle-cli.js": {
         "patch": "oracle-cli.followup-port-and-timeout.patch",
         "pristine": "6909a8fd25ff7e5459123637e90a79d72dc5733cc2af0c14220018cb663b1825",
-        "patched": "9a39768943d1b0d5c737d172b1a8a0815c80d002fe73a18b0d84af1bfc213b43",
+        "patched": "1040fe0c9fbe41513bc71354dcb767e23b5060999fef12e7c849b82b7aea5b49",
+        "legacy_patched": ["9a39768943d1b0d5c737d172b1a8a0815c80d002fe73a18b0d84af1bfc213b43"],
     },
     "dist/src/cli/browserConfig.js": {
         "patch": "browserConfig.followup-port-binding.patch",
         "pristine": "52ddb9d0289849301f83863ed0b5209b8d9f071358e7784fcf4a5c8724b1c147",
-        "patched": "1725d8e4b1eba6882c9549acfde5e472cfffd719a965acfbfb347327b7c3e8f1",
-        "legacy_patched": ["67c1230eb37cbc4d638814bab280402081b2d5baa239ed728e32c5140c8503b1"],
+        "patched": "86568005a67eff2cdac1ca0eaf6a8481bf57f4603c6cfb6c7d801efcc6055695",
+        "legacy_patched": [
+            "1725d8e4b1eba6882c9549acfde5e472cfffd719a965acfbfb347327b7c3e8f1",
+            "67c1230eb37cbc4d638814bab280402081b2d5baa239ed728e32c5140c8503b1",
+        ],
+    },
+    "dist/src/cli/options.js": {
+        "patch": "options.chatgpt-latest-pro.patch",
+        "pristine": "948a3ff242f7e9060a82c7bfbd60f89e13cbb7e7cbd0273ab7b8e7a6c58d22dc",
+        "patched": "bffe69caf893b8620bef1b5cbc117b2e5d5d0cb6ca5aa2e02dd842e1c9e991ad",
     },
     "dist/src/browser/config.js": {
         "patch": "browserConfig.copy-profile-windows.patch",
@@ -249,8 +258,9 @@ PATCHES = {
     "dist/src/browser/actions/thinkingTime.js": {
         "patch": "thinkingTime.gpt56-pro-power-slider.patch",
         "pristine": "3d9d06b08417bca3b2d646eb4d46887d26c5de7c068d1e995c73b6b6e2f61199",
-        "patched": "c1bb4123b6f0fd0d7b17075a23327d4058ce6490da84fb0d3581376c0bd5b841",
+        "patched": "a03acbd7a0403ef499b0855999a7d377afd9aa11b19aae95c8add28cacca8635",
         "legacy_patched": [
+            "c1bb4123b6f0fd0d7b17075a23327d4058ce6490da84fb0d3581376c0bd5b841",
             "1aa1a216f71e1213c2056efb0db4c4de7c2b2c505311e1be98c2b6a2784521dd",
             "978f754ba4011957790530474d27d629a8d353dd449f8e2636e02a9abd27b81a",
             "a19ce77fe57b4fa1a290e130da323377ed69b6e51b1ad133b1ab5355ead59345",
