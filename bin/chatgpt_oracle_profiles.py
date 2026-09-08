@@ -32,10 +32,11 @@ if _CONFIG_SPEC is None or _CONFIG_SPEC.loader is None:
 WORKSPACE_CONFIG = importlib.util.module_from_spec(_CONFIG_SPEC)
 _CONFIG_SPEC.loader.exec_module(WORKSPACE_CONFIG)
 DEVSPACE_APP_NAME = WORKSPACE_CONFIG.DEFAULT_APP_NAME
-# Current ChatGPT exposes Pro as the maximum effort for GPT-5.6 Sol, not as a
-# separate model row.  The validated Oracle current/LKG contracts verify that
-# Pro effort independently.
-PRO_MODEL = "gpt-5.6-sol"
+# The current web UI exposes the newest model as the `Latest` row and the
+# separate fifth effort tier as `Pro`.  Keep the provider's opaque internal
+# name out of the contract: this alias is intentionally bound to the visible
+# `Latest + Pro` selection, while sealed GPT-5.6 Sol receipts remain readable.
+PRO_MODEL = "chatgpt-latest-pro"
 PRO_THINKING_TIME = "pro"
 PRO_COMPOSER_PROMPT = (
     "Read the attached prompt/instructions and all attached files, then provide read-only analysis only. "

@@ -3632,13 +3632,13 @@ def _require_followup_parent(parent_run_dir: Path) -> tuple[dict[str, Any], dict
     profile = state.get("profile") if isinstance(state.get("profile"), dict) else {}
     if (
         str(state.get("transport") or "") != "pro-devspace-readonly"
-        or str(profile.get("model") or "").casefold() != "gpt-5.6-sol"
+        or not STATE.is_supported_pro_model(profile.get("model"))
         or str(profile.get("model_strategy") or "") != "select"
         or not STATE.is_compatible_pro_thinking_time(profile.get("thinking_time"))
     ):
         raise OracleRunError(
             "FOLLOWUP_PARENT_PROFILE_FORBIDDEN",
-            "follow-up is limited to terminal GPT-5.6 Sol/Pro pro-devspace-readonly parents",
+            "follow-up is limited to terminal Latest + Pro (or legacy GPT-5.6 Sol/Pro) pro-devspace-readonly parents",
         )
     ownership = STATE.proven_ownership_receipt(state_path)
     browser = STATE.proven_browser_identity_receipt(state_path)
@@ -3701,7 +3701,7 @@ def _followup_manifest_payload(
         "oracle_command": (parent.get("oracle") or {}).get("command"),
         "submit_mutex_timeout_seconds": 30,
         "episode_policy": policy,
-        "model": "gpt-5.6-sol",
+        "model": STATE.CURRENT_PRO_MODEL,
         "model_strategy": "select",
         # A child is a new Pro submission even when its sealed parent used
         # Oracle's historical Heavy spelling.

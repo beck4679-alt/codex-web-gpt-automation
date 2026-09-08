@@ -1,8 +1,7 @@
 diff --git a/dist/src/cli/browserConfig.js b/dist/src/cli/browserConfig.js
 --- a/dist/src/cli/browserConfig.js
 +++ b/dist/src/cli/browserConfig.js
-@@ -14,5 +14,12 @@ const DEFAULT_BROWSER_RECHECK_TIMEOUT_MS = 120_000;
- const DEFAULT_BROWSER_AUTO_REATTACH_TIMEOUT_MS = 120_000;
+@@ -14,11 +14,19 @@
  const DEFAULT_CHROME_PROFILE = "Default";
 +export function bindFollowupBrowserPort(browserConfig, requestedPort) {
 +    if (requestedPort == null)
@@ -14,3 +13,11 @@ diff --git a/dist/src/cli/browserConfig.js b/dist/src/cli/browserConfig.js
  const CURRENT_CHATGPT_PRO_ALIASES = new Set([
      "gpt-5-pro",
      "gpt-5.1-pro",
+     "gpt-5.2-pro",
+     "gpt-5.4-pro",
+ ]);
+ // Ordered array: most specific models first to ensure correct selection.
+ // The browser label is passed to the model picker which fuzzy-matches against ChatGPT's UI.
+ const BROWSER_MODEL_LABELS = [
++    ["chatgpt-latest-pro", "Latest"],
+     // Most specific first (e.g., "gpt-5.2-thinking" before "gpt-5.2")

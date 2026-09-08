@@ -233,7 +233,8 @@ PATCHES = {
     "dist/src/cli/browserConfig.js": {
         "patch": "browserConfig.followup-port-binding.patch",
         "pristine": "52ddb9d0289849301f83863ed0b5209b8d9f071358e7784fcf4a5c8724b1c147",
-        "patched": "67c1230eb37cbc4d638814bab280402081b2d5baa239ed728e32c5140c8503b1",
+        "patched": "1725d8e4b1eba6882c9549acfde5e472cfffd719a965acfbfb347327b7c3e8f1",
+        "legacy_patched": ["67c1230eb37cbc4d638814bab280402081b2d5baa239ed728e32c5140c8503b1"],
     },
     "dist/src/browser/config.js": {
         "patch": "browserConfig.copy-profile-windows.patch",
@@ -248,8 +249,9 @@ PATCHES = {
     "dist/src/browser/actions/thinkingTime.js": {
         "patch": "thinkingTime.gpt56-pro-power-slider.patch",
         "pristine": "3d9d06b08417bca3b2d646eb4d46887d26c5de7c068d1e995c73b6b6e2f61199",
-        "patched": "1aa1a216f71e1213c2056efb0db4c4de7c2b2c505311e1be98c2b6a2784521dd",
+        "patched": "c1bb4123b6f0fd0d7b17075a23327d4058ce6490da84fb0d3581376c0bd5b841",
         "legacy_patched": [
+            "1aa1a216f71e1213c2056efb0db4c4de7c2b2c505311e1be98c2b6a2784521dd",
             "978f754ba4011957790530474d27d629a8d353dd449f8e2636e02a9abd27b81a",
             "a19ce77fe57b4fa1a290e130da323377ed69b6e51b1ad133b1ab5355ead59345",
         ],

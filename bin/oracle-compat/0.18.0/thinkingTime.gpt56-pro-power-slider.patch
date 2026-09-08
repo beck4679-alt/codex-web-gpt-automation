@@ -1,7 +1,12 @@
 diff --git a/dist/src/browser/actions/thinkingTime.js b/dist/src/browser/actions/thinkingTime.js
 --- a/dist/src/browser/actions/thinkingTime.js
 +++ b/dist/src/browser/actions/thinkingTime.js
-@@ -849,6 +849,203 @@ function buildThinkingTimeExpression(level, desiredModel) {
+@@ -182,3 +182,3 @@
+     const targetModelKindLiteral = JSON.stringify(inferThinkingTargetModelKind(desiredModel));
+-    const targetIsGpt56ModelLiteral = JSON.stringify(/(?:^|[^0-9])5[._ -]6(?:[^0-9]|$)/i.test(desiredModel ?? ""));
++    const targetIsGpt56ModelLiteral = JSON.stringify(/(?:^|[^0-9])5[._ -]6(?:[^0-9]|$)|(?:^|[^a-z])latest(?:[^a-z]|$)/i.test(desiredModel ?? ""));
+     return `(async () => {
+@@ -849,6 +849,204 @@ function buildThinkingTimeExpression(level, desiredModel) {
        'effort', 'aufwand', '强度', '努力', '推論レベル',
        'esfuerzo', 'esforco', 'sforzo', 'inspanning', 'wysilek',
      ];
@@ -46,7 +51,8 @@ diff --git a/dist/src/browser/actions/thinkingTime.js b/dist/src/browser/actions
 +      ).filter((item) => isVisible(item) && optionIsSelected(item));
 +      if (selected.length === 0) return 'pending';
 +      if (selected.length !== 1) return 'conflicting';
-+      return nodeLabel(selected[0]).replace(/\\s+/g, '') === 'gpt56sol'
++      const normalizedModel = nodeLabel(selected[0]).replace(/\\s+/g, '');
++      return normalizedModel === 'gpt56sol' || normalizedModel === 'latest'
 +        ? 'exact'
 +        : 'wrong';
 +    };

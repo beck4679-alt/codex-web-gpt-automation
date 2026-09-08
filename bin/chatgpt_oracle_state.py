@@ -383,7 +383,17 @@ PROFILE_COPY_DEPENDENCY = "rsync"
 PROFILE_COPY_NATIVE_PLATFORMS = ("nt",)
 PRO_TRANSPORTS = frozenset(("pro-attachment-only", "pro-devspace", "pro-devspace-readonly"))
 DEVSPACE_TRANSPORTS = frozenset(("devspace", "pro-devspace", "pro-devspace-readonly"))
-# New GPT-5.6 Sol Pro launches use the provider's visible fifth effort tier.
+# The current web UI exposes the newest model as `Latest` and the fifth effort
+# tier as `Pro`.  The internal alias is deliberately provider-agnostic: the
+# UI does not expose a stable underlying model slug.  Historical GPT-5.6 Sol
+# records remain valid and are never rewritten.
+CURRENT_PRO_MODEL = "chatgpt-latest-pro"
+LEGACY_PRO_MODEL = "gpt-5.6-sol"
+SUPPORTED_PRO_MODELS = frozenset((CURRENT_PRO_MODEL, LEGACY_PRO_MODEL))
+PRO_BROWSER_MODEL_LABELS = {
+    CURRENT_PRO_MODEL: "Latest",
+    LEGACY_PRO_MODEL: "GPT-5.6 Sol",
+}
 # Historical receipts used Oracle's retired compatibility token; read-only
 # recovery and follow-up validation must continue to recognize those sealed
 # records without ever rewriting them.
@@ -392,6 +402,20 @@ COMPATIBLE_PRO_THINKING_TIMES = frozenset((PRO_THINKING_TIME, "heavy"))
 VISIBLE_GPT56_SOL_THINKING_TIME_LABELS = (
     "Instant", "Medium", "High", "Extra High", "Pro",
 )
+
+
+def is_supported_pro_model(value: object) -> bool:
+    return str(value or "").strip().casefold() in {
+        model.casefold() for model in SUPPORTED_PRO_MODELS
+    }
+
+
+def pro_browser_model_label(value: object) -> str | None:
+    normalized = str(value or "").strip().casefold()
+    for model, label in PRO_BROWSER_MODEL_LABELS.items():
+        if model.casefold() == normalized:
+            return label
+    return None
 
 
 def is_pro_transport(transport: str) -> bool:
@@ -749,10 +773,10 @@ def load_manifest(
             "thinking_time must be light, standard, extended, extra-high, pro, or legacy heavy",
         )
     if is_pro_transport(transport):
-        if model.casefold() != "gpt-5.6-sol":
+        if not is_supported_pro_model(model):
             raise OracleStateError(
                 "PRO_MODEL_INVALID",
-                "Pro attachment-only runs require GPT-5.6 Sol with an explicitly verified Pro effort; no downgrade is allowed",
+                "Pro runs require the visible Latest + Pro target (or a legacy GPT-5.6 Sol/Pro receipt); no downgrade is allowed",
                 {"model": model},
             )
         if model_strategy != "select":
@@ -1316,7 +1340,7 @@ def _validate_followup_reservation_for_child(
         or parent_state.get("terminal_harvested") is not True
         or parent_state.get("task_outcome") != "executed"
         or parent_state.get("transport") != "pro-devspace-readonly"
-        or parent_profile.get("model") != "gpt-5.6-sol"
+        or not is_supported_pro_model(parent_profile.get("model"))
         or parent_profile.get("model_strategy") != "select"
         or not is_compatible_pro_thinking_time(parent_profile.get("thinking_time"))
         or parent_owner is None
@@ -3078,7 +3102,7 @@ def _standalone_pro_attachment_no_submission_evidence(
         or state.get("requested_run_id") not in (None, run_id)
         or state.get("web_multi_child_provenance") is not None
         or run_dir.name != run_id
-        or str(profile.get("model") or "") != "gpt-5.6-sol"
+        or not is_supported_pro_model(profile.get("model"))
         or str(profile.get("model_strategy") or "") != "select"
         or not is_compatible_pro_thinking_time(profile.get("thinking_time"))
     ):
@@ -3341,7 +3365,7 @@ def _standalone_pro_no_submission_evidence(
         or state.get("web_multi_child_provenance") is not None
         or state.get("attachments") not in (None, [])
         or run_dir.name != run_id
-        or str(profile.get("model") or "") != "gpt-5.6-sol"
+        or not is_supported_pro_model(profile.get("model"))
         or str(profile.get("model_strategy") or "") != "select"
         or not is_compatible_pro_thinking_time(profile.get("thinking_time"))
     ):
@@ -3476,20 +3500,20 @@ def _standalone_pro_no_submission_evidence(
         if (
             meta.get("id") != locator
             or meta.get("status") != "error"
-            or meta.get("model") != "gpt-5.6-sol"
+            or meta.get("model") != profile.get("model")
             or meta.get("mode") != "browser"
             or not str(meta.get("completedAt") or "").strip()
             or meta_cwd != Path(str(state.get("project_root") or "")).resolve()
             or meta_output != output.resolve()
             or config_profile != state_profile
             or option_profile != state_profile
-            or config.get("desiredModel") != "GPT-5.6 Sol"
+            or config.get("desiredModel") != pro_browser_model_label(profile.get("model"))
             or config.get("modelStrategy") != "select"
             or config.get("thinkingTime") != "heavy"
-            or options.get("model") != "gpt-5.6-sol"
+            or options.get("model") != profile.get("model")
             or options.get("slug") != locator
             or option_browser.get("modelStrategy") != "select"
-            or option_browser.get("desiredModel") != "GPT-5.6 Sol"
+            or option_browser.get("desiredModel") != pro_browser_model_label(profile.get("model"))
             or option_browser.get("thinkingTime") != "heavy"
             or runtime.get("promptSubmitted") is not False
             or runtime.get("tabUrl") != "https://chatgpt.com/"
@@ -4091,7 +4115,7 @@ def _followup_no_submission_evidence(
         or state.get("transport") != "pro-devspace-readonly"
         or state.get("mode") != "browser"
         or state.get("transport_status") not in {"failed", "not_submitted_user_confirmed"}
-        or profile.get("model") != "gpt-5.6-sol"
+        or not is_supported_pro_model(profile.get("model"))
         or profile.get("model_strategy") != "select"
         or not is_compatible_pro_thinking_time(profile.get("thinking_time"))
         or state.get("task_outcome") != "pending"
@@ -4273,7 +4297,7 @@ def _followup_no_submission_evidence(
         or meta.get("status") != "error"
         or not str(meta.get("completedAt") or "").strip()
         or meta.get("mode") != "browser"
-        or str(meta.get("model") or "") != "gpt-5.6-sol"
+        or str(meta.get("model") or "") != str(profile.get("model") or "")
         or error.get("category") != "browser-automation"
         or browser.get("archive") not in (None, "")
         or config.get("resumeConversationUrl") != parent_url
@@ -5354,7 +5378,7 @@ def proven_pre_submit_manual_login_profile_uninitialized(
     oracle = state.get("oracle") if isinstance(state.get("oracle"), dict) else {}
     locator = str(oracle.get("session_locator") or oracle.get("slug") or "").strip()
     if (
-        str(profile.get("model") or "") != "gpt-5.6-sol"
+        not is_supported_pro_model(profile.get("model"))
         or str(profile.get("model_strategy") or "") != "select"
         or str(profile.get("copy_profile") or "").strip()
         or str(oracle.get("resolved_version") or "").removeprefix("oracle ").strip() != "0.17.1"
@@ -5494,7 +5518,7 @@ def proven_pre_submit_cdp_disconnect(state_path: Path) -> dict[str, Any] | None:
     except OSError:
         return None
     if (
-        str(profile.get("model") or "") != "gpt-5.6-sol"
+        not is_supported_pro_model(profile.get("model"))
         or str(profile.get("model_strategy") or "") != "select"
         or not is_compatible_pro_thinking_time(profile.get("thinking_time"))
         or copy_profile != expected_profile
@@ -5597,16 +5621,16 @@ def proven_pre_submit_cdp_disconnect(state_path: Path) -> dict[str, Any] | None:
     if (
         meta.get("id") != locator
         or meta.get("status") != "error"
-        or meta.get("model") != "gpt-5.6-sol"
+        or meta.get("model") != profile.get("model")
         or meta.get("mode") != "browser"
         or not str(meta.get("completedAt") or "").strip()
         or meta_cwd != project_root.resolve()
         or config_profile != expected_profile
         or option_profile != expected_profile
-        or config.get("desiredModel") != "GPT-5.6 Sol"
+        or config.get("desiredModel") != pro_browser_model_label(profile.get("model"))
         or config.get("modelStrategy") != "select"
         or config.get("thinkingTime") != "heavy"
-        or options.get("model") != "gpt-5.6-sol"
+        or options.get("model") != profile.get("model")
         or options.get("slug") != locator
         or output_path != canonical["output"]
         or runtime.get("promptSubmitted") is not False
@@ -6538,7 +6562,7 @@ def proven_pre_submit_thinking_time_failure(state_path: Path) -> dict[str, Any] 
     )
     is_current_pro = (
         is_pro_transport(str(state.get("transport") or ""))
-        and str(profile.get("model") or "").casefold() == "gpt-5.6-sol"
+        and is_supported_pro_model(profile.get("model"))
         and str(profile.get("model_strategy") or "").casefold() == "select"
         and str(profile.get("thinking_time") or "").casefold() == PRO_THINKING_TIME
     )

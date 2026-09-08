@@ -25,8 +25,10 @@ Use this routing in the Codex global `AGENTS.md` after installing the package.
   only after an explicit user request. Selecting Ultra Economy Mode authorizes
   the Luna-Max local/web-first profile, not Pro; its one read-only Pro advisory
   requires a separate explicit user authorization.
-- Every new qualified Pro run uses Oracle, `GPT-5.6 Sol` at the Pro effort, the
-  `pro-devspace-readonly` transport, and the manually registered DevSpace app.
+- Every new qualified Pro run uses Oracle, the visible `Latest` model at the
+  `Pro` effort, the `pro-devspace-readonly` transport, and the manually registered
+  DevSpace app. Historical `GPT-5.6 Sol`/Pro receipts remain readable but are not
+  rewritten.
   It binds the exact project root but is
   read-only and limited to design, advice, or review; it must not create, edit,
   or remove files or run commands. A regular `GPT-5.6` `extra-high` DevSpace

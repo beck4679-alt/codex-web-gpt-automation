@@ -123,7 +123,7 @@ def test_pro_attachment_compiles_attachment_only_oracle_and_manual_never_launche
     assert pro["contract"]["thinking_time"] == "pro"
     assert value["transport"] == "pro-attachment-only"
     assert value["task_kind"] == "pro"
-    assert value["model"] == "gpt-5.6-sol"
+    assert value["model"] == "chatgpt-latest-pro"
     assert value["thinking_time"] == "pro"
     assert value["attachments"] == [str(prompt.resolve()), str(packet.resolve())]
     assert "app_name" not in value
@@ -150,7 +150,7 @@ def test_pro_defaults_to_devspace_without_attachments(tmp_path: Path) -> None:
     assert result["contract"]["route"] == "oracle-pro-devspace-readonly"
     assert value["transport"] == "pro-devspace-readonly"
     assert value["app_name"] == "DevSpace"
-    assert value["model"] == "gpt-5.6-sol"
+    assert value["model"] == "chatgpt-latest-pro"
     assert value["model_strategy"] == "select"
     assert value["thinking_time"] == "pro"
     assert value["research"] == "off"
@@ -185,5 +185,5 @@ def test_pro_cli_dry_run_validates_compiled_manifest_without_submission(
     assert emitted["run"]["status"] == "dry-run"
     assert emitted["run"]["transport"] == "pro-attachment-only"
     assert manifest["task_kind"] == "pro"
-    assert manifest["model"] == "gpt-5.6-sol"
+    assert manifest["model"] == "chatgpt-latest-pro"
     assert manifest["thinking_time"] == "pro"

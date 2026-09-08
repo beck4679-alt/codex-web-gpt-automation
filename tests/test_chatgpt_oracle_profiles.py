@@ -77,7 +77,7 @@ def test_pro_attachment_is_oracle_attachment_only_and_manual_launches_nothing(tm
     assert pro["app_policy"] == "forbidden"
     assert pro["oracle_launch"] is True
     assert pro["devspace_required"] is False
-    assert pro["model"] == "gpt-5.6-sol"
+    assert pro["model"] == "chatgpt-latest-pro"
     assert pro["task_kind"] == "pro"
     assert pro["thinking_time"] == "pro"
     assert pro["attachment_policy"] == "always"
@@ -136,7 +136,7 @@ def test_pro_is_explicit_readonly_devspace_without_attachments(tmp_path: Path) -
 
     assert contract["route"] == "oracle-pro-devspace-readonly"
     assert contract["app_name"] == "DevSpace"
-    assert contract["model"] == "gpt-5.6-sol"
+    assert contract["model"] == "chatgpt-latest-pro"
     assert contract["model_strategy"] == "select"
     assert contract["thinking_time"] == "pro"
     assert profiles.PRO_THINKING_TIME == "pro"

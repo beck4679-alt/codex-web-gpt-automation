@@ -1253,9 +1253,9 @@ def _oracle_manifest(
         "project_root": str(config["project_root"]),
         "mission_path": str(mission),
         "mode": "browser",
-        "model": "gpt-5.6-sol" if stage == "pro" else config["model"],
+        "model": RUNNER.STATE.CURRENT_PRO_MODEL if stage == "pro" else config["model"],
         "model_strategy": "select",
-        # Pro is the explicit highest effort in the current GPT-5.6 Sol UI;
+        # Pro is the explicit highest effort on the current `Latest` model;
         # regular comprehensive stages use the separately verified Extra High.
         "thinking_time": "pro" if stage == "pro" else "extra-high",
         "research": "off",

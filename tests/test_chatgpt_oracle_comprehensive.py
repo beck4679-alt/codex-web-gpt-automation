@@ -98,7 +98,7 @@ def test_ultra_economy_dry_run_starts_with_explicit_pro_design(tmp_path: Path, m
     assert result["ok"] is True
     assert result["stage"] == "pro"
     assert result["workflow_profile"] == "ultra-economy"
-    assert seen["model"] == "gpt-5.6-sol"
+    assert seen["model"] == "chatgpt-latest-pro"
     assert seen["thinking_time"] == "pro"
     assert seen["transport"] == "pro-devspace-readonly"
 
@@ -419,7 +419,7 @@ def test_explicit_pro_stage_runs_readonly_devspace_and_materializes_bound_receip
             assert "separate regular GPT-5.6 extra-high DevSpace implementation stage" in text
             assert payload["transport"] == "pro-devspace-readonly"
             assert payload["task_outcome_contract"] == "v1"
-            assert payload["model"] == "gpt-5.6-sol"
+            assert payload["model"] == "chatgpt-latest-pro"
             assert payload["app_name"] == "DevSpace"
             assert "attachments" not in payload
             attempt = next(line.split("=", 1)[1] for line in text.splitlines() if line.startswith("attempt_id="))

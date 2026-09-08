@@ -4,7 +4,7 @@ Architecture v2 is retained only to identify and recover already persisted
 CodexPro/agbrowse runs. It is not a valid source of new-submission commands.
 
 All new regular and Pro ChatGPT work uses Oracle. Regular work uses DevSpace.
-Qualified Pro uses `GPT-5.6 Sol` at the Pro effort through read-only DevSpace
+Qualified Pro uses the visible ChatGPT `Latest` model at the `Pro` effort through read-only DevSpace
 at the exact project root and only after explicit opt-in, for design, advice,
 or review. A regular `GPT-5.6` `extra-high` stage performs mutations and
 commands. Explicit `pro-attachment` remains a separate read-only immutable-evidence
